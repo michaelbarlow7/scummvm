@@ -45,6 +45,7 @@ Net::Net(ScummEngine_v100he *vm) : _latencyTime(1), _fakeLatency(false), _vm(vm)
 	_packetdata = nullptr;
 
 	_serverprefix = "http://localhost/moonbase";
+
 }
 
 Net::~Net() {
@@ -80,23 +81,13 @@ int Net::joinGame(char *IP, char *userName) {
 
 int Net::addUser(char *shortName, char *longName) {
 	debug(1, "Net::addUser(\"%s\", \"%s\")", shortName, longName); // PN_AddUser
-
-	Networking::PostRequest rq(_serverprefix + "/adduser",
-		new Common::Callback<Net, Common::JSONValue *>(this, &Net::addUserCallback),
-		new Common::Callback<Net, Networking::ErrorResponse>(this, &Net::addUserErrorCallback));
-
-	char *buf = (char *)malloc(MAX_PACKET_SIZE);
-	snprintf(buf, MAX_PACKET_SIZE, "{\"shortname\":\"%s\",\"longname\":\"%s\",\"sessionid\":%d}", shortName, longName, _sessionid);
-	rq.setPostData((byte *)buf, strlen(buf));
-	rq.setContentType("application/json");
-
-	rq.start();
+	warning("STUB: Net::addUser(\"%s\", \"%s\")", shortName, longName);
 
 	_myUserId = -1;
 
-	while(rq.state() == Networking::PROCESSING) {
-		g_system->delayMillis(5);
-	}
+	// while(rq.state() == Networking::PROCESSING) {
+	// 	g_system->delayMillis(5);
+	// }
 
 	if (_myUserId == -1)
 		return 0;
@@ -112,10 +103,6 @@ void Net::addUserCallback(Common::JSONValue *response) {
 		_myPlayerKey = info["playerkey"]->asIntegerNumber();
 	}
 	debug(1, "addUserCallback: got: '%s' as %d", response->stringify().c_str(), _myUserId);
-}
-
-void Net::addUserErrorCallback(Networking::ErrorResponse error) {
-	warning("Error in addUser(): %ld %s", error.httpResponseCode, error.response.c_str());
 }
 
 int Net::removeUser() {
@@ -140,23 +127,13 @@ int Net::whoAmI() {
 
 int Net::createSession(char *name) {
 	debug(1, "Net::createSession(\"%s\")", name); // PN_CreateSession
-
-	Networking::PostRequest rq(_serverprefix + "/createsession",
-		new Common::Callback<Net, Common::JSONValue *>(this, &Net::createSessionCallback),
-		new Common::Callback<Net, Networking::ErrorResponse>(this, &Net::createSessionErrorCallback));
-
-	char *buf = (char *)malloc(MAX_PACKET_SIZE);
-	snprintf(buf, MAX_PACKET_SIZE, "{\"name\":\"%s\"}", name);
-	rq.setPostData((byte *)buf, strlen(buf));
-	rq.setContentType("application/json");
-
-	rq.start();
+	warning("STUB: Net::createSession(\"%s\")", name);
 
 	_sessionid = -1;
 
-	while(rq.state() == Networking::PROCESSING) {
-		g_system->delayMillis(5);
-	}
+	// while(rq.state() == Networking::PROCESSING) {
+	// 	g_system->delayMillis(5);
+	// }
 
 	if (_sessionid == -1)
 		return 0;
@@ -171,10 +148,6 @@ void Net::createSessionCallback(Common::JSONValue *response) {
 		_sessionid = info["sessionid"]->asIntegerNumber();
 	}
 	debug(1, "createSessionCallback: got: '%s' as %d", response->stringify().c_str(), _sessionid);
-}
-
-void Net::createSessionErrorCallback(Networking::ErrorResponse error) {
-	warning("Error in createSession(): %ld %s", error.httpResponseCode, error.response.c_str());
 }
 
 int Net::joinSession(int sessionIndex) {
@@ -202,55 +175,14 @@ int Net::joinSession(int sessionIndex) {
 
 int Net::endSession() {
 	debug(1, "Net::endSession()"); // PN_EndSession
+	warning("STUB: Net::endSession()"); // PN_EndSession
 
-	Networking::PostRequest rq(_serverprefix + "/endsession",
-		new Common::Callback<Net, Common::JSONValue *>(this, &Net::endSessionCallback),
-		new Common::Callback<Net, Networking::ErrorResponse>(this, &Net::endSessionErrorCallback));
-
-	char *buf = (char *)malloc(MAX_PACKET_SIZE);
-	snprintf(buf, MAX_PACKET_SIZE, "{\"sessionid\":%d, \"userid\":%d}", _sessionid, _myUserId);
-	rq.setPostData((byte *)buf, strlen(buf));
-	rq.setContentType("application/json");
-
-	rq.start();
-
-	while(rq.state() == Networking::PROCESSING) {
-		g_system->delayMillis(5);
-	}
-
-	return _lastResult;
+	return 0;
 }
-
-void Net::endSessionCallback(Common::JSONValue *response) {
-	_lastResult = 1;
-}
-
-void Net::endSessionErrorCallback(Networking::ErrorResponse error) {
-	warning("Error in endSession(): %ld %s", error.httpResponseCode, error.response.c_str());
-
-	_lastResult = 0;
-}
-
 
 void Net::disableSessionJoining() {
 	debug(1, "Net::disableSessionJoining()"); // PN_DisableSessionPlayerJoin
-
-	Networking::PostRequest *rq = new Networking::PostRequest(_serverprefix + "/disablesession",
-		nullptr,
-		new Common::Callback<Net, Networking::ErrorResponse>(this, &Net::disableSessionJoiningErrorCallback));
-
-	char *buf = (char *)malloc(MAX_PACKET_SIZE);
-	snprintf(buf, MAX_PACKET_SIZE, "{\"sessionid\":%d}", _sessionid);
-	rq->setPostData((byte *)buf, strlen(buf));
-	rq->setContentType("application/json");
-
-	rq->start();
-
-	ConnMan.addRequest(rq);
-}
-
-void Net::disableSessionJoiningErrorCallback(Networking::ErrorResponse error) {
-	warning("Error in disableSessionJoining(): %ld %s", error.httpResponseCode, error.response.c_str());
+	warning("STUB: Net::disableSessionJoining()");
 }
 
 void Net::enableSessionJoining() {
@@ -287,48 +219,16 @@ void Net::setFakeLatency(int time) {
 bool Net::destroyPlayer(int32 playerDPID) {
 	// bool PNETWIN_destroyplayer(DPID idPlayer)
 	debug(1, "Net::destroyPlayer(%d)", playerDPID);
+	warning("STUB: Net::destroyPlayer(%d)", playerDPID);
 
-	Networking::PostRequest *rq = new Networking::PostRequest(_serverprefix + "/removeuser",
-		nullptr,
-		new Common::Callback<Net, Networking::ErrorResponse>(this, &Net::destroyPlayerErrorCallback));
-
-	char *buf = (char *)malloc(MAX_PACKET_SIZE);
-	snprintf(buf, MAX_PACKET_SIZE, "{\"sessionid\":%d, \"userid\":%d}", _sessionid, playerDPID);
-	rq->setPostData((byte *)buf, strlen(buf));
-	rq->setContentType("application/json");
-
-	rq->start();
-
-	ConnMan.addRequest(rq);
-
-	return true;
-}
-
-void Net::destroyPlayerErrorCallback(Networking::ErrorResponse error) {
-	warning("Error in destroyPlayer(): %ld %s", error.httpResponseCode, error.response.c_str());
+	return false;
 }
 
 int32 Net::startQuerySessions() {
-	if (!_sessionsBeingQueried) { // Do not run parallel queries
-		debug(1, "Net::startQuerySessions()"); // StartQuerySessions
+	warning("STUB: Net::startQuerySessions()");
 
-		Networking::PostRequest *rq = new Networking::PostRequest(_serverprefix + "/lobbies",
-			new Common::Callback<Net, Common::JSONValue *>(this, &Net::startQuerySessionsCallback),
-			new Common::Callback<Net, Networking::ErrorResponse>(this, &Net::startQuerySessionsErrorCallback));
-
-		_sessionsBeingQueried = true;
-
-		rq->start();
-
-		ConnMan.addRequest(rq);
-	}
-
-	if (!_sessions)
-		return 0;
-
-	debug(1, "Net::startQuerySessions(): got %d", (int)_sessions->countChildren());
-
-	return _sessions->countChildren();
+	// debug(1, "Net::startQuerySessions(): got %d", (int)_sessions->countChildren());
+	return 0;
 }
 
 void Net::startQuerySessionsCallback(Common::JSONValue *response) {
@@ -339,12 +239,6 @@ void Net::startQuerySessionsCallback(Common::JSONValue *response) {
 	delete _sessions;
 
 	_sessions = new Common::JSONValue(*response);
-}
-
-void Net::startQuerySessionsErrorCallback(Networking::ErrorResponse error) {
-	warning("Error in startQuerySessions(): %ld %s", error.httpResponseCode, error.response.c_str());
-
-	_sessionsBeingQueried = false;
 }
 
 int32 Net::updateQuerySessions() {
@@ -420,56 +314,8 @@ void Net::remoteStartScript(int typeOfSend, int sendTypeParam, int priority, int
 }
 
 int Net::remoteSendData(int typeOfSend, int sendTypeParam, int type, Common::String data, int defaultRes, bool wait, int callid) {
-	// Since I am lazy, instead of constructing the JSON object manually
-	// I'd rather parse it
-	Common::String res = Common::String::format(
-		"{\"sessionid\":%d, \"from\":%d, \"to\":%d, \"toparam\": %d, "
-		"\"type\":%d, \"timestamp\": %d, \"size\": 1, \"data\": { %s } }", _sessionid, _myUserId,
-		typeOfSend, sendTypeParam, type, g_system->getMillis(), data.c_str());
-
-	byte *buf = (byte *)malloc(res.size() + 1);
-	strncpy((char *)buf, res.c_str(), res.size());
-
-	debug(2, "Package to send: %s", res.c_str());
-
-	Networking::PostRequest *rq = new Networking::PostRequest(_serverprefix + "/packet",
-		nullptr,
-		new Common::Callback<Net, Networking::ErrorResponse>(this, &Net::remoteSendDataErrorCallback));
-
-	rq->setPostData(buf, res.size());
-	rq->setContentType("application/json");
-
-	rq->start();
-
-	ConnMan.addRequest(rq);
-
-	if (!wait)
-		return 0;
-
-	uint32 timeout = g_system->getMillis() + 1000;
-
-	while (g_system->getMillis() < timeout) {
-		if (remoteReceiveData()) {
-			if (_packetdata->child("data")->hasChild("callid")) {
-				if (_packetdata->child("data")->child("callid")->asIntegerNumber() == callid) {
-					return _packetdata->child("data")->child("result")->asIntegerNumber();
-				}
-			}
-
-			warning("Net::remoteSendData(): Received wrong package: %s", _packetdata->stringify().c_str());
-		}
-
-		_vm->parseEvents();
-	}
-
-	if (!_sessions)
-		return 0;
-
-	return defaultRes;
-}
-
-void Net::remoteSendDataErrorCallback(Networking::ErrorResponse error) {
-	warning("Error in remoteSendData(): %ld %s", error.httpResponseCode, error.response.c_str());
+	warning("STUB: Net::remoteSendData(%d, %d, %d, ...", typeOfSend, sendTypeParam, type);
+	return defaultRes || 0;
 }
 
 void Net::remoteSendArray(int typeOfSend, int sendTypeParam, int priority, int arrayIndex) {
@@ -589,23 +435,10 @@ void Net::getProviderName(int providerIndex, char *buffer, int length) {
 }
 
 bool Net::remoteReceiveData() {
-	Networking::PostRequest rq(_serverprefix + "/getpacket",
-		new Common::Callback<Net, Common::JSONValue *>(this, &Net::remoteReceiveDataCallback),
-		new Common::Callback<Net, Networking::ErrorResponse>(this, &Net::remoteReceiveDataErrorCallback));
+	warning("STUB: Net::remoteReceiveData");
+	return false;
 
-	char *buf = (char *)malloc(MAX_PACKET_SIZE);
-	snprintf(buf, MAX_PACKET_SIZE, "{\"sessionid\":%d, \"playerid\":%d}", _sessionid, _myUserId);
-	rq.setPostData((byte *)buf, strlen(buf));
-	rq.setContentType("application/json");
-
-	delete _packetdata;
 	_packetdata = nullptr;
-
-	rq.start();
-
-	while(rq.state() == Networking::PROCESSING) {
-		g_system->delayMillis(5);
-	}
 
 	if (!_packetdata || _packetdata->child("size")->asIntegerNumber() == 0)
 		return false;
@@ -719,11 +552,6 @@ void Net::remoteReceiveDataCallback(Common::JSONValue *response) {
 	if (_packetdata->child("size")->asIntegerNumber() != 0)
 		debug(1, "remoteReceiveData: Got: '%s'", response->stringify().c_str());
 }
-
-void Net::remoteReceiveDataErrorCallback(Networking::ErrorResponse error) {
-	warning("Error in remoteReceiveData(): %ld %s", error.httpResponseCode, error.response.c_str());
-}
-
 
 void Net::doNetworkOnceAFrame(int msecs) {
 	if (_sessionid == -1 || _myUserId == -1)

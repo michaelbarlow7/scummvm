@@ -22,7 +22,7 @@
 #ifndef SCUMM_HE_MOONBASE_NET_MAIN_H
 #define SCUMM_HE_MOONBASE_NET_MAIN_H
 
-#include "backends/networking/curl/postrequest.h"
+#include "common/json.h"
 
 namespace Scumm {
 
@@ -67,27 +67,11 @@ public:
 
 private:
 	bool remoteReceiveData();
-
 	void createSessionCallback(Common::JSONValue *response);
-	void createSessionErrorCallback(Networking::ErrorResponse error);
-
 	void startQuerySessionsCallback(Common::JSONValue *response);
-	void startQuerySessionsErrorCallback(Networking::ErrorResponse error);
-
 	void addUserCallback(Common::JSONValue *response);
-	void addUserErrorCallback(Networking::ErrorResponse error);
-
-	void disableSessionJoiningErrorCallback(Networking::ErrorResponse error);
-
 	void endSessionCallback(Common::JSONValue *response);
-	void endSessionErrorCallback(Networking::ErrorResponse error);
-
-	void destroyPlayerErrorCallback(Networking::ErrorResponse error);
-
-	void remoteSendDataErrorCallback(Networking::ErrorResponse error);
-
 	void remoteReceiveDataCallback(Common::JSONValue *response);
-	void remoteReceiveDataErrorCallback(Networking::ErrorResponse error);
 
 public:
 	//getters
