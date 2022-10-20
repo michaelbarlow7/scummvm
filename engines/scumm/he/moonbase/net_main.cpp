@@ -19,8 +19,6 @@
  *
  */
 
-#include "backends/networking/curl/connectionmanager.h"
-
 #include "scumm/he/intern_he.h"
 #include "scumm/he/moonbase/moonbase.h"
 #include "scumm/he/moonbase/net_main.h"
@@ -33,6 +31,8 @@ Net::Net(ScummEngine_v100he *vm) : _latencyTime(1), _fakeLatency(false), _vm(vm)
 
 	_packbuffer = (byte *)malloc(MAX_PACKET_SIZE + DATA_HEADER_SIZE);
 	_tmpbuffer = (byte *)malloc(MAX_PACKET_SIZE);
+
+	_enet = nullptr;
 
 	_myUserId = -1;
 	_myPlayerKey = -1;
@@ -207,6 +207,17 @@ int32 Net::setProviderByName(int32 parameter1, int32 parameter2) {
 
 	// Emulate that we found a TCP/IP provider
 
+	// Create a new ENet instance and initalize the library.
+	if (_enet) {
+		warning("Net::setProviderByName: ENet instance already exists.");
+		return 1;
+	}
+	_enet = new Networking::ENet();
+	if (!_enet->initalize()) {
+		_vm->displayMessage(0, "Unable to initalize ENet library.");
+		Net::closeProvider();
+		return 0;
+	}
 	return 1;
 }
 
@@ -272,6 +283,11 @@ int Net::setProvider(int providerIndex) {
 
 int Net::closeProvider() {
 	debug(1, "Net::closeProvider()"); // PN_CloseProvider
+	if (_enet) {
+		// Destroy ENet instance and deinitalize.
+		delete _enet;
+		_enet = nullptr;
+	}
 
 	return 1;
 }

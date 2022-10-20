@@ -23,7 +23,7 @@
 #define SCUMM_HE_MOONBASE_NET_MAIN_H
 
 #include "common/json.h"
-
+#include "backends/networking/enet/enet.h"
 namespace Scumm {
 
 class ScummEngine_v100he;
@@ -90,6 +90,8 @@ public:
 	bool _fakeLatency;
 
 	ScummEngine_v100he *_vm;
+	
+	Networking::ENet *_enet;
 
 	byte *_packbuffer;
 	int _packetsize;
