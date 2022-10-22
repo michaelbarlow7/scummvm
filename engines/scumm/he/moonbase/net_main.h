@@ -24,6 +24,7 @@
 
 #include "common/json.h"
 #include "backends/networking/enet/enet.h"
+#include "backends/networking/enet/host.h"
 namespace Scumm {
 
 class ScummEngine_v100he;
@@ -69,7 +70,6 @@ private:
 	bool remoteReceiveData();
 	void createSessionCallback(Common::JSONValue *response);
 	void startQuerySessionsCallback(Common::JSONValue *response);
-	void addUserCallback(Common::JSONValue *response);
 	void endSessionCallback(Common::JSONValue *response);
 	void remoteReceiveDataCallback(Common::JSONValue *response);
 
@@ -97,12 +97,15 @@ public:
 	int _packetsize;
 	byte *_tmpbuffer;
 
+	Common::Array<Common::String> *_userNames;
+
 	int _myUserId;
 	int _myPlayerKey;
 
 	int _lastResult;
 
 	int _sessionid;
+	Networking::Host *_sessionHost;
 
 	bool _sessionsBeingQueried;
 

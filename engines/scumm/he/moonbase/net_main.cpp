@@ -34,6 +34,9 @@ Net::Net(ScummEngine_v100he *vm) : _latencyTime(1), _fakeLatency(false), _vm(vm)
 
 	_enet = nullptr;
 
+	_sessionHost = nullptr;
+
+	_userNames = new Common::Array<Common::String>();
 	_myUserId = -1;
 	_myPlayerKey = -1;
 	_lastResult = 0;
@@ -59,6 +62,7 @@ Net::~Net() {
 int Net::hostGame(char *sessionName, char *userName) {
 	if (createSession(sessionName)) {
 		if (addUser(userName, userName)) {
+			_myUserId = _userNames->size();
 			return 1;
 		} else {
 			_vm->displayMessage(0, "Error Adding User \"%s\" to Session \"%s\"", userName, sessionName);
@@ -81,28 +85,14 @@ int Net::joinGame(char *IP, char *userName) {
 
 int Net::addUser(char *shortName, char *longName) {
 	debug(1, "Net::addUser(\"%s\", \"%s\")", shortName, longName); // PN_AddUser
-	warning("STUB: Net::addUser(\"%s\", \"%s\")", shortName, longName);
 
-	_myUserId = -1;
-
-	// while(rq.state() == Networking::PROCESSING) {
-	// 	g_system->delayMillis(5);
-	// }
-
-	if (_myUserId == -1)
+	// TODO: What's the difference between shortName and longName?
+	if (_userNames->size() > 4) {
+		// We are full.
 		return 0;
-
-	return 1;
-}
-
-void Net::addUserCallback(Common::JSONValue *response) {
-	Common::JSONObject info = response->asObject();
-
-	if (info.contains("userid")) {
-		_myUserId = info["userid"]->asIntegerNumber();
-		_myPlayerKey = info["playerkey"]->asIntegerNumber();
 	}
-	debug(1, "addUserCallback: got: '%s' as %d", response->stringify().c_str(), _myUserId);
+	_userNames->push_back(longName);
+	return 1;
 }
 
 int Net::removeUser() {
@@ -127,15 +117,19 @@ int Net::whoAmI() {
 
 int Net::createSession(char *name) {
 	debug(1, "Net::createSession(\"%s\")", name); // PN_CreateSession
-	warning("STUB: Net::createSession(\"%s\")", name);
+
+	if (!_enet) {
+		return 0;
+	};
 
 	_sessionid = -1;
+	_sessionHost = _enet->create_host("0.0.0.0", 0, 3, 1, 0, 0);
 
 	// while(rq.state() == Networking::PROCESSING) {
 	// 	g_system->delayMillis(5);
 	// }
 
-	if (_sessionid == -1)
+	if (!_sessionHost)
 		return 0;
 
 	return 1;
@@ -175,7 +169,16 @@ int Net::joinSession(int sessionIndex) {
 
 int Net::endSession() {
 	debug(1, "Net::endSession()"); // PN_EndSession
-	warning("STUB: Net::endSession()"); // PN_EndSession
+
+	if (_sessionHost) {
+		delete _sessionHost;
+		_sessionHost = nullptr;
+	}
+	
+	if (_userNames)
+		_userNames->clear();
+	
+	_myUserId = -1;
 
 	return 0;
 }
@@ -284,7 +287,10 @@ int Net::setProvider(int providerIndex) {
 int Net::closeProvider() {
 	debug(1, "Net::closeProvider()"); // PN_CloseProvider
 	if (_enet) {
-		// Destroy ENet instance and deinitalize.
+		// Destroy all ENet instances and deinitalize.
+		if (_sessionHost) {
+			endSession();
+		}
 		delete _enet;
 		_enet = nullptr;
 	}
