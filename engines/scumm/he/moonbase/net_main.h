@@ -67,9 +67,8 @@ public:
 	void doNetworkOnceAFrame(int msecs);
 
 private:
-	bool remoteReceiveData();
+	bool remoteReceiveData(uint32 tickCount);
 	void createSessionCallback(Common::JSONValue *response);
-	void startQuerySessionsCallback(Common::JSONValue *response);
 	void endSessionCallback(Common::JSONValue *response);
 	void remoteReceiveDataCallback(Common::JSONValue *response);
 
@@ -97,6 +96,7 @@ public:
 	int _packetsize;
 	byte *_tmpbuffer;
 
+	Common::Array<ENetPeer> *_peers;
 	Common::Array<Common::String> *_userNames;
 
 	int _myUserId;
@@ -106,6 +106,10 @@ public:
 
 	int _sessionid;
 	Networking::Host *_sessionHost;
+
+	// For broadcasting our game session over LAN.
+	Networking::Host *_broadcastHost;
+	Networking::Host *_lanHost;
 
 	bool _sessionsBeingQueried;
 

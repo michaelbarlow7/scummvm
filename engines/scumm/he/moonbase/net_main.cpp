@@ -35,6 +35,8 @@ Net::Net(ScummEngine_v100he *vm) : _latencyTime(1), _fakeLatency(false), _vm(vm)
 	_enet = nullptr;
 
 	_sessionHost = nullptr;
+	_broadcastHost = nullptr;
+	_lanHost = nullptr;
 
 	_userNames = new Common::Array<Common::String>();
 	_myUserId = -1;
@@ -123,14 +125,22 @@ int Net::createSession(char *name) {
 	};
 
 	_sessionid = -1;
-	_sessionHost = _enet->create_host("0.0.0.0", 0, 3, 1, 0, 0);
+	_sessionHost = _enet->create_host("0.0.0.0", 0, 3);
 
 	// while(rq.state() == Networking::PROCESSING) {
 	// 	g_system->delayMillis(5);
 	// }
 
-	if (!_sessionHost)
+	if (!_sessionHost) {
 		return 0;
+	}
+	
+	// TODO: Config to enable/disable LAN broadcasting.
+	_broadcastHost = _enet->create_host("0.0.0.0", 9130, 3);
+	if (!_broadcastHost) {
+		warning("NETWORK: Unable to create broadcast host, your game will not be broadcast over LAN");
+		return 1;
+	}
 
 	return 1;
 }
@@ -173,6 +183,10 @@ int Net::endSession() {
 	if (_sessionHost) {
 		delete _sessionHost;
 		_sessionHost = nullptr;
+	}
+	if (_broadcastHost) {
+		delete _broadcastHost;
+		_broadcastHost = nullptr;
 	}
 	
 	if (_userNames)
@@ -241,18 +255,12 @@ bool Net::destroyPlayer(int32 playerDPID) {
 int32 Net::startQuerySessions() {
 	warning("STUB: Net::startQuerySessions()");
 
+	if (!_lanHost) {
+		_lanHost = _enet->connect_to_host("255.255.255.255", 9130, 500);
+	}
+
 	// debug(1, "Net::startQuerySessions(): got %d", (int)_sessions->countChildren());
 	return 0;
-}
-
-void Net::startQuerySessionsCallback(Common::JSONValue *response) {
-	debug(1, "startQuerySessions: Got: '%s' which is %d", response->stringify().c_str(), (int)response->countChildren());
-
-	_sessionsBeingQueried = false;
-
-	delete _sessions;
-
-	_sessions = new Common::JSONValue(*response);
 }
 
 int32 Net::updateQuerySessions() {
@@ -262,6 +270,11 @@ int32 Net::updateQuerySessions() {
 
 void Net::stopQuerySessions() {
 	debug(1, "Net::stopQuerySessions()"); // StopQuerySessions
+
+	if (_lanHost) {
+		delete _lanHost;
+		_lanHost = nullptr;
+	}
 
 	_sessionsBeingQueried = false;
 	// No op
@@ -456,8 +469,21 @@ void Net::getProviderName(int providerIndex, char *buffer, int length) {
 	warning("STUB: Net::getProviderName(%d, \"%s\", %d)", providerIndex, buffer, length); // PN_GetProviderName
 }
 
-bool Net::remoteReceiveData() {
-	warning("STUB: Net::remoteReceiveData");
+bool Net::remoteReceiveData(uint32 tickCount) {
+	// warning("STUB: Net::remoteReceiveData");
+
+	if (_broadcastHost) {
+		uint8 hostType = _broadcastHost->service();
+		if (hostType < 1)
+			return false;
+		
+		if (hostType == ENET_EVENT_TYPE_RECEIVE) {
+			debug(1, "Got data from address %s:%d", _broadcastHost->get_host().c_str(), _broadcastHost->get_port());
+
+			_broadcastHost->destroy_packet();
+		}
+	}
+
 	return false;
 
 	_packetdata = nullptr;
@@ -576,16 +602,10 @@ void Net::remoteReceiveDataCallback(Common::JSONValue *response) {
 }
 
 void Net::doNetworkOnceAFrame(int msecs) {
-	if (_sessionid == -1 || _myUserId == -1)
+	if (_enet == nullptr || _sessionHost == nullptr || _myUserId == -1)
 		return;
 
-	uint32 tickCount = g_system->getMillis() + msecs;
-
-	while (remoteReceiveData()) {
-		if (tickCount >= g_system->getMillis()) {
-			break;
-		}
-	}
+	remoteReceiveData(msecs);
 }
 
 } // End of namespace Scumm
