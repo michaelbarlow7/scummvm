@@ -25,6 +25,7 @@
 #include "common/json.h"
 #include "backends/networking/enet/enet.h"
 #include "backends/networking/enet/host.h"
+#include "backends/networking/enet/socket.h"
 namespace Scumm {
 
 class ScummEngine_v100he;
@@ -67,6 +68,8 @@ public:
 	void doNetworkOnceAFrame(int msecs);
 
 private:
+	bool serviceBroadcast();
+	void handleBroadcastData(Common::String data, Common::String host, int port);
 	bool remoteReceiveData(uint32 tickCount);
 	void createSessionCallback(Common::JSONValue *response);
 	void endSessionCallback(Common::JSONValue *response);
@@ -97,7 +100,7 @@ public:
 	byte *_tmpbuffer;
 
 	Common::Array<ENetPeer> *_peers;
-	Common::Array<Common::String> *_userNames;
+	Common::Array<Common::String> _userNames;
 
 	int _myUserId;
 	int _myPlayerKey;
@@ -105,11 +108,21 @@ public:
 	int _lastResult;
 
 	int _sessionid;
+	Common::String _sessionName;
 	Networking::Host *_sessionHost;
 
+	typedef struct {
+		uint32 lastSeen;
+		Common::String host;
+		int port;
+		Common::String name;
+		int players;
+	} _localSession;
+
+	Common::Array<_localSession> _localSessions;
+
 	// For broadcasting our game session over LAN.
-	Networking::Host *_broadcastHost;
-	Networking::Host *_lanHost;
+	Networking::Socket *_broadcastSocket;
 
 	bool _sessionsBeingQueried;
 

@@ -35,10 +35,9 @@ Net::Net(ScummEngine_v100he *vm) : _latencyTime(1), _fakeLatency(false), _vm(vm)
 	_enet = nullptr;
 
 	_sessionHost = nullptr;
-	_broadcastHost = nullptr;
-	_lanHost = nullptr;
+	_broadcastSocket = nullptr;
 
-	_userNames = new Common::Array<Common::String>();
+	_userNames = Common::Array<Common::String>();
 	_myUserId = -1;
 	_myPlayerKey = -1;
 	_lastResult = 0;
@@ -46,6 +45,8 @@ Net::Net(ScummEngine_v100he *vm) : _latencyTime(1), _fakeLatency(false), _vm(vm)
 	_sessionsBeingQueried = false;
 
 	_sessionid = -1;
+	_sessionName = Common::String();
+	_localSessions = Common::Array<_localSession>();
 	_sessions = nullptr;
 	_packetdata = nullptr;
 
@@ -64,7 +65,7 @@ Net::~Net() {
 int Net::hostGame(char *sessionName, char *userName) {
 	if (createSession(sessionName)) {
 		if (addUser(userName, userName)) {
-			_myUserId = _userNames->size();
+			_myUserId = _userNames.size();
 			return 1;
 		} else {
 			_vm->displayMessage(0, "Error Adding User \"%s\" to Session \"%s\"", userName, sessionName);
@@ -89,11 +90,11 @@ int Net::addUser(char *shortName, char *longName) {
 	debug(1, "Net::addUser(\"%s\", \"%s\")", shortName, longName); // PN_AddUser
 
 	// TODO: What's the difference between shortName and longName?
-	if (_userNames->size() > 4) {
+	if (_userNames.size() > 4) {
 		// We are full.
 		return 0;
 	}
-	_userNames->push_back(longName);
+	_userNames.push_back(longName);
 	return 1;
 }
 
@@ -136,11 +137,13 @@ int Net::createSession(char *name) {
 	}
 	
 	// TODO: Config to enable/disable LAN broadcasting.
-	_broadcastHost = _enet->create_host("0.0.0.0", 9130, 3);
-	if (!_broadcastHost) {
-		warning("NETWORK: Unable to create broadcast host, your game will not be broadcast over LAN");
+	_broadcastSocket = _enet->create_socket("0.0.0.0", 9130);
+	if (!_broadcastSocket) {
+		warning("NETWORK: Unable to create broadcast socket, your game will not be broadcast over LAN");
 		return 1;
 	}
+
+	_sessionName = name;
 
 	return 1;
 }
@@ -184,14 +187,14 @@ int Net::endSession() {
 		delete _sessionHost;
 		_sessionHost = nullptr;
 	}
-	if (_broadcastHost) {
-		delete _broadcastHost;
-		_broadcastHost = nullptr;
+	if (_broadcastSocket) {
+		delete _broadcastSocket;
+		_broadcastSocket = nullptr;
 	}
 	
-	if (_userNames)
-		_userNames->clear();
-	
+	_userNames.clear();	
+	_sessionid = -1;
+	_sessionName.clear();
 	_myUserId = -1;
 
 	return 0;
@@ -253,28 +256,49 @@ bool Net::destroyPlayer(int32 playerDPID) {
 }
 
 int32 Net::startQuerySessions() {
-	warning("STUB: Net::startQuerySessions()");
+	// warning("STUB: Net::startQuerySessions()");
+	debug(1, "Net::startQuerySessions()");
 
-	if (!_lanHost) {
-		_lanHost = _enet->connect_to_host("255.255.255.255", 9130, 500);
+	if (!_broadcastSocket) {
+		_broadcastSocket = _enet->create_socket("0.0.0.0", 0);
 	}
-
 	// debug(1, "Net::startQuerySessions(): got %d", (int)_sessions->countChildren());
 	return 0;
 }
 
 int32 Net::updateQuerySessions() {
 	debug(1, "Net::updateQuerySessions()"); // UpdateQuerySessions
-	return startQuerySessions();
+
+	if (_broadcastSocket) {
+		// Send a session query to the broadcast address.
+		_broadcastSocket->send("255.255.255.255", 9130, "{\"cmd\": \"get_session\"}");
+	}
+	
+	uint32 tickCount = g_system->getMillis() + 100;
+	while(g_system->getMillis() < tickCount) {
+		serviceBroadcast();
+	}
+
+	for (Common::Array<_localSession>::iterator i = _localSessions.begin(); i != _localSessions.end();) {
+		if (g_system->getMillis() - i->lastSeen > 5000) {
+			i = _localSessions.erase(i);
+		} else {
+			i++;
+		}
+	}
+
+	return _localSessions.size();
 }
 
 void Net::stopQuerySessions() {
 	debug(1, "Net::stopQuerySessions()"); // StopQuerySessions
 
-	if (_lanHost) {
-		delete _lanHost;
-		_lanHost = nullptr;
+	if (_broadcastSocket) {
+		delete _broadcastSocket;
+		_broadcastSocket = nullptr;
 	}
+	
+	_localSessions.clear();
 
 	_sessionsBeingQueried = false;
 	// No op
@@ -429,61 +453,110 @@ bool Net::getIPfromName(char *ip, int ipLength, char *nameBuffer) {
 void Net::getSessionName(int sessionNumber, char *buffer, int length) {
 	debug(1, "Net::getSessionName(%d, ..., %d)", sessionNumber, length); // PN_GetSessionName
 
-	if (!_sessions) {
+	if (_localSessions.empty()) {
 		*buffer = '\0';
 		warning("Net::getSessionName(): no sessions");
 		return;
 	}
 
-	if (sessionNumber >= (int)_sessions->countChildren()) {
+	if (sessionNumber >= (int)_localSessions.size()) {
 		*buffer = '\0';
-		warning("Net::getSessionName(): session number too big: %d >= %d", sessionNumber, (int)_sessions->countChildren());
+		warning("Net::getSessionName(): session number too big: %d >= %d", sessionNumber, (int)_localSessions.size());
 		return;
 	}
 
-	Common::strlcpy(buffer, _sessions->child(sessionNumber)->child("name")->asString().c_str(), length);
+	Common::strlcpy(buffer, _localSessions[sessionNumber].name.c_str(), length);
 }
 
 int Net::getSessionPlayerCount(int sessionNumber) {
 	debug(1, "Net::getSessionPlayerCount(%d)", sessionNumber); // case GET_SESSION_PLAYER_COUNT_KLUDGE:
 
-	if (!_sessions) {
+	if (_localSessions.empty()) {
 		warning("Net::getSessionPlayerCount(): no sessions");
 		return 0;
 	}
 
-	if (sessionNumber >= (int)_sessions->countChildren()) {
-		warning("Net::getSessionPlayerCount(): session number too big: %d >= %d", sessionNumber, (int)_sessions->countChildren());
+	if (sessionNumber >= (int)_localSessions.size()) {
+		warning("Net::getSessionPlayerCount(): session number too big: %d >= %d", sessionNumber, (int)_localSessions.size());
 		return 0;
 	}
 
-	if (!_sessions->child(sessionNumber)->hasChild("players")) {
+	if (_localSessions[sessionNumber].players < 1) {
 		warning("Net::getSessionPlayerCount(): no players in session");
 		return 0;
 	}
 
-	return _sessions->child(sessionNumber)->child("players")->countChildren();
+	return _localSessions[sessionNumber].players;
 }
 
 void Net::getProviderName(int providerIndex, char *buffer, int length) {
 	warning("STUB: Net::getProviderName(%d, \"%s\", %d)", providerIndex, buffer, length); // PN_GetProviderName
 }
 
-bool Net::remoteReceiveData(uint32 tickCount) {
-	// warning("STUB: Net::remoteReceiveData");
+bool Net::serviceBroadcast() {
+	if (!_broadcastSocket)
+		return false;
 
-	if (_broadcastHost) {
-		uint8 hostType = _broadcastHost->service();
-		if (hostType < 1)
-			return false;
-		
-		if (hostType == ENET_EVENT_TYPE_RECEIVE) {
-			debug(1, "Got data from address %s:%d", _broadcastHost->get_host().c_str(), _broadcastHost->get_port());
+	if (!_broadcastSocket->receive())
+		return false;
+	
+	handleBroadcastData(_broadcastSocket->get_data(), _broadcastSocket->get_host(), _broadcastSocket->get_port());
+	return true;
+}
 
-			_broadcastHost->destroy_packet();
-		}
+void Net::handleBroadcastData(Common::String data, Common::String host, int port) {
+	debug(1, "NETWORK: Received data from broadcast socket.  Source: %s:%d  Data: %s", host.c_str(), port, data.c_str());
+
+	Common::JSONValue *json = Common::JSON::parse(data.c_str());
+	if (!json) {
+		// Just about anything could come from the broadcast address, so do not warn.
+		debug(1, "NETWORK: Not a JSON string, ignoring.");
+	}
+	if (!json->isObject()){
+		warning("NETWORK: Received non JSON object from broadcast socket: \"%s\"", data.c_str());
+		return;
 	}
 
+	Common::JSONObject root = json->asObject();
+	if (root.contains("cmd") && root["cmd"]->isString()) {
+		Common::String command = root["cmd"]->asString();
+
+		if (command == "get_session") {
+			// Session query.
+			if (_sessionHost) {
+				Common::String resp = Common::String::format(
+					"{\"cmd\":\"session_resp\", \"name\":\"%s\", \"players\":%d}",
+					_sessionName.c_str(), _userNames.size());
+				_broadcastSocket->send(host, port, resp.c_str());
+			}
+		} else if (command == "session_resp") {
+			if (!_sessionHost && root.contains("name") && root.contains("players")) {
+				Common::String name = root["name"]->asString();
+				int players = root["players"]->asIntegerNumber();
+
+				// Check if we already know about this session:
+				for (Common::Array<_localSession>::iterator i = _localSessions.begin(); i != _localSessions.end(); i++) {
+					if (i->host == host && i->port == port) {
+						// Yes we do, Update the lastSeen timestamp,
+						i->lastSeen = g_system->getMillis();
+						return;
+					}
+				}
+				// If we're here, assume that we had no clue about this session, store it.
+				_localSession session;
+				session.lastSeen = g_system->getMillis();
+				session.host = host;
+				session.port = port;
+				session.name = name;
+				session.players = players;
+				_localSessions.push_back(session);
+			}
+		}
+	}
+}
+
+bool Net::remoteReceiveData(uint32 tickCount) {
+	// warning("STUB: Net::remoteReceiveData");
 	return false;
 
 	_packetdata = nullptr;
@@ -602,10 +675,13 @@ void Net::remoteReceiveDataCallback(Common::JSONValue *response) {
 }
 
 void Net::doNetworkOnceAFrame(int msecs) {
-	if (_enet == nullptr || _sessionHost == nullptr || _myUserId == -1)
+	if (!_enet || !_sessionHost || _myUserId == -1)
 		return;
 
 	remoteReceiveData(msecs);
+
+	if (_broadcastSocket)
+		serviceBroadcast();
 }
 
 } // End of namespace Scumm
