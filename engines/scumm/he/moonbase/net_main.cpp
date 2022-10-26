@@ -132,7 +132,7 @@ int Net::joinGame(Common::String IP, char *userName) {
 }
 
 bool Net::connectToSession(Common::String address, int port) {
-	_sessionHost = _enet->connect_to_host(address, port);
+	_sessionHost = _enet->connectToHost(address, port);
 	if (!_sessionHost)
 		return false;
 	
@@ -198,7 +198,7 @@ int Net::createSession(char *name) {
 	};
 
 	_sessionid = -1;
-	_sessionHost = _enet->create_host("0.0.0.0", 0, 3);
+	_sessionHost = _enet->createHost("0.0.0.0", 0, 3);
 
 	// while(rq.state() == Networking::PROCESSING) {
 	// 	g_system->delayMillis(5);
@@ -211,7 +211,7 @@ int Net::createSession(char *name) {
 	_isHost = true;
 	
 	// TODO: Config to enable/disable LAN broadcasting.
-	_broadcastSocket = _enet->create_socket("0.0.0.0", 9130);
+	_broadcastSocket = _enet->createSocket("0.0.0.0", 9130);
 	if (!_broadcastSocket) {
 		warning("NETWORK: Unable to create broadcast socket, your game will not be broadcast over LAN");
 		return 1;
@@ -324,7 +324,7 @@ int32 Net::startQuerySessions() {
 	debug(1, "Net::startQuerySessions()");
 
 	if (!_broadcastSocket) {
-		_broadcastSocket = _enet->create_socket("0.0.0.0", 0);
+		_broadcastSocket = _enet->createSocket("0.0.0.0", 0);
 	}
 	// debug(1, "Net::startQuerySessions(): got %d", (int)_sessions->countChildren());
 	return 0;
@@ -580,7 +580,7 @@ bool Net::serviceBroadcast() {
 	if (!_broadcastSocket->receive())
 		return false;
 	
-	handleBroadcastData(_broadcastSocket->get_data(), _broadcastSocket->get_host(), _broadcastSocket->get_port());
+	handleBroadcastData(_broadcastSocket->getData(), _broadcastSocket->getHost(), _broadcastSocket->getPort());
 	return true;
 }
 
@@ -612,7 +612,7 @@ void Net::handleBroadcastData(Common::String data, Common::String host, int port
 				// Send this through the session host instead of the broadcast socket
 				// because that will send the correct port to connect to.
 				// They'll still receive it though, that's the power of connection-less sockets.
-				_sessionHost->send_raw_data(host, port, resp.c_str());
+				_sessionHost->sendRawData(host, port, resp.c_str());
 			}
 		} else if (command == "session_resp") {
 			if (!_sessionHost && root.contains("name") && root.contains("players")) {
@@ -647,42 +647,42 @@ bool Net::remoteReceiveData(uint32 tickCount) {
 		return true;
 	case ENET_EVENT_TYPE_CONNECT:
 		{
-			debug(1, "NETWORK: New connection from %s:%d", _sessionHost->get_host().c_str(), _sessionHost->get_port());
+			debug(1, "NETWORK: New connection from %s:%d", _sessionHost->getHost().c_str(), _sessionHost->getPort());
 			return true;
 		}
 		return true;
 	case ENET_EVENT_TYPE_DISCONNECT:
 		{
-			debug(1, "NETWORK: Connection from %s:%d has disconnected.", _sessionHost->get_host().c_str(), _sessionHost->get_port());
+			debug(1, "NETWORK: Connection from %s:%d has disconnected.", _sessionHost->getHost().c_str(), _sessionHost->getPort());
 			// TODO: Let the game know.
 			return true;
 		}
 		return true;
 	case ENET_EVENT_TYPE_RECEIVE:
 		{
-			Common::String host = _sessionHost->get_host();
-			int port = _sessionHost->get_port();
+			Common::String host = _sessionHost->getHost();
+			int port = _sessionHost->getPort();
 			debug(1, "NETWORK: Got data from %s:%d", host.c_str(), port);
 			
-			int peerIndex = _sessionHost->get_peer_index_from_host(host, port);
+			int peerIndex = _sessionHost->getPeerIndexFromHost(host, port);
 			if (peerIndex == -1) {
 				warning("NETWORK: Unable to get peer index for host %s:%d", host.c_str(), port);
-				_sessionHost->destroy_packet();
+				_sessionHost->destroyPacket();
 				return false;
 			}
 
-			Common::String data = _sessionHost->get_packet_data();
+			Common::String data = _sessionHost->getPacketData();
 			debug(1, "%s", data.c_str());
 			Common::JSONValue *json = Common::JSON::parse(data.c_str());
 			if (!json) {
 				// Just about anything could come from the broadcast address, so do not warn.
 				warning("NETWORK: Received non-JSON string.  Got: \"%s\"", data.c_str());
-				_sessionHost->destroy_packet();
+				_sessionHost->destroyPacket();
 				return false;
 			}
 			if (!json->isObject()){
 				warning("NETWORK: Received non JSON object from broadcast socket: \"%s\"", data.c_str());
-				_sessionHost->destroy_packet();
+				_sessionHost->destroyPacket();
 				return false;
 			}
 
@@ -710,7 +710,7 @@ bool Net::remoteReceiveData(uint32 tickCount) {
 						handleGameData(json, peerIndex);
 				}
 			}
-			_sessionHost->destroy_packet();
+			_sessionHost->destroyPacket();
 		}
 		return true;
 		break;
