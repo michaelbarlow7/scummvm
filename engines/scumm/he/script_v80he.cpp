@@ -188,11 +188,15 @@ void ScummEngine_v80he::o80_readConfigFile() {
 	case 6: // number
 		if (!strcmp((char *)option, "Benchmark"))
 			push(2);
+		else if (!strcmp((char *)option, "hostip"))
+			push(ConfMan.getBool("host_game"));
 		else
 			push(atoi(entry.c_str()));
 		break;
 	case 77: // HE 100
 	case 7: // string
+		if (!strcmp((char *)option, "joinip") && ConfMan.get("join_game") != "null")
+			entry = ConfMan.get("join_game");
 		writeVar(0, 0);
 		len = resStrLen((const byte *)entry.c_str());
 		data = defineArray(0, kStringArray, 0, 0, 0, len);
