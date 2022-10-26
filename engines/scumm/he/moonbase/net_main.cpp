@@ -29,7 +29,6 @@ namespace Scumm {
 Net::Net(ScummEngine_v100he *vm) : _latencyTime(1), _fakeLatency(false), _vm(vm) {
 	//some defaults for fields
 
-	_packbuffer = (byte *)malloc(MAX_PACKET_SIZE + DATA_HEADER_SIZE);
 	_tmpbuffer = (byte *)malloc(MAX_PACKET_SIZE);
 
 	_enet = nullptr;
@@ -40,26 +39,18 @@ Net::Net(ScummEngine_v100he *vm) : _latencyTime(1), _fakeLatency(false), _vm(vm)
 	_userNames = Common::Array<Common::String>();
 	_myUserId = -1;
 	_myPlayerKey = -1;
+	_fromUserId = -1;
 	_lastResult = 0;
 
-	_sessionsBeingQueried = false;
-
 	_sessionid = -1;
+	_isHost = false;
 	_sessionName = Common::String();
 	_localSessions = Common::Array<_localSession>();
-	_sessions = nullptr;
-	_packetdata = nullptr;
-
-	_serverprefix = "http://localhost/moonbase";
-
 }
 
 Net::~Net() {
 	free(_tmpbuffer);
-	free(_packbuffer);
-
-	delete _sessions;
-	delete _packetdata;
+	closeProvider();
 }
 
 int Net::hostGame(char *sessionName, char *userName) {
@@ -81,21 +72,103 @@ int Net::hostGame(char *sessionName, char *userName) {
 	return 0;
 }
 
-int Net::joinGame(char *IP, char *userName) {
-	warning("STUB: Net::joinGame(\"%s\", \"%s\")", IP, userName); // PN_JoinTCPIPGame
+int Net::joinGame(Common::String IP, char *userName) {
+	// This gets called when attempting to join with the --join-game command line param.
+	debug(1, "Net::joinGame(\"%s\", \"%s\")", IP.c_str(), userName); // PN_JoinTCPIPGame
+	int port = 0;
+	// Parse and seperate the port from the IP address if any.
+	int portPos = IP.findFirstOf(":");
+	if (portPos > -1) {
+		port = atoi(IP.substr(portPos + 1).c_str());
+		IP = IP.substr(0, portPos);
+	}
+
+	bool isLocal = false;
+	// TODO: 20-bit block address (172.16.0.0 – 172.31.255.255)
+	if (IP == "127.0.0.1" || IP == "localhost" || IP == "255.255.255.255" ||
+		IP.matchString("10.*.*.*") || IP.matchString("192.168.*.*")) {
+		isLocal = true;
+	}
+
+	if (isLocal) {
+		if (!port) {
+			// Local connection with no port specified.  Send a session request to get port:
+			startQuerySessions();
+			if (!_broadcastSocket) {
+				return 0;
+			}
+
+			_localSessions.clear();
+			_broadcastSocket->send(IP.c_str(), 9130, "{\"cmd\": \"get_session\"}");
+			
+			uint tickCount = 0;
+			while(!_localSessions.size()) {
+				serviceBroadcast();
+				// Wait for one minute for response before giving up
+				tickCount += 5;
+				g_system->delayMillis(5);
+				if (tickCount >= 1000)
+					break;
+			}
+
+			if (!_localSessions.size())
+				return 0;
+
+			if (IP == "255.255.255.255")
+				IP = _localSessions[0].host;
+			port = _localSessions[0].port;
+			stopQuerySessions();
+		}
+		// We got our address and port, attempt connection:
+		if (connectToSession(IP, port)) {
+			// Connected, add our user.
+			return addUser(userName, userName);
+		}
+	} else {
+		warning("STUB: joinGame: Public IP connection %s", IP.c_str());
+	}
+
 	return 0;
+}
+
+bool Net::connectToSession(Common::String address, int port) {
+	_sessionHost = _enet->connect_to_host(address, port);
+	if (!_sessionHost)
+		return false;
+	
+	_isHost = false;
+	return true;
 }
 
 int Net::addUser(char *shortName, char *longName) {
 	debug(1, "Net::addUser(\"%s\", \"%s\")", shortName, longName); // PN_AddUser
-
 	// TODO: What's the difference between shortName and longName?
-	if (_userNames.size() > 4) {
-		// We are full.
-		return 0;
+	
+	if (_isHost) {
+		if (_userNames.size() > 4) {
+			// We are full.
+			return 0;
+		}
+		_userNames.push_back(longName);
+		return 1;
 	}
-	_userNames.push_back(longName);
-	return 1;
+
+	// Client:
+	Common::String addUser = Common::String::format(
+		"{\"cmd\":\"add_user\",\"name\":\"%s\"}", longName);
+	
+	_sessionHost->send(addUser.c_str(), 0, 0, true);
+
+	uint tickCount = 0;
+	while(_myUserId == -1) {
+		remoteReceiveData(12);
+		// Wait for one minute for our user id before giving up
+		tickCount += 5;
+		g_system->delayMillis(5);
+		if (tickCount >= 1000)
+			break;
+	}
+	return (_myUserId > -1) ? 1 : 0;
 }
 
 int Net::removeUser() {
@@ -108,13 +181,12 @@ int Net::removeUser() {
 }
 
 int Net::whoSentThis() {
-	debug(1, "Net::whoSentThis()"); // PN_WhoSentThis
-	return _packetdata->child("from")->asIntegerNumber();
+	debug(1, "Net::whoSentThis(): return %d", _fromUserId); // PN_WhoSentThis
+	return _fromUserId;
 }
 
 int Net::whoAmI() {
-	debug(1, "Net::whoAmI()"); // PN_WhoAmI
-
+	debug(1, "Net::whoAmI(): return %d", _myUserId); // PN_WhoAmI
 	return _myUserId;
 }
 
@@ -136,6 +208,8 @@ int Net::createSession(char *name) {
 		return 0;
 	}
 	
+	_isHost = true;
+	
 	// TODO: Config to enable/disable LAN broadcasting.
 	_broadcastSocket = _enet->create_socket("0.0.0.0", 9130);
 	if (!_broadcastSocket) {
@@ -148,36 +222,25 @@ int Net::createSession(char *name) {
 	return 1;
 }
 
-void Net::createSessionCallback(Common::JSONValue *response) {
-	Common::JSONObject info = response->asObject();
-
-	if (info.contains("sessionid")) {
-		_sessionid = info["sessionid"]->asIntegerNumber();
-	}
-	debug(1, "createSessionCallback: got: '%s' as %d", response->stringify().c_str(), _sessionid);
-}
-
 int Net::joinSession(int sessionIndex) {
 	debug(1, "Net::joinSession(%d)", sessionIndex); // PN_JoinSession
-
-	if (!_sessions) {
+	if (_localSessions.empty()) {
 		warning("Net::joinSession(): no sessions");
 		return 0;
 	}
 
-	if (sessionIndex >= (int)_sessions->countChildren()) {
-		warning("Net::joinSession(): session number too big: %d >= %d", sessionIndex, (int)_sessions->countChildren());
+	if (sessionIndex >= (int)_localSessions.size()) {
+		warning("Net::joinSession(): session number too big: %d >= %d", sessionIndex, _localSessions.size());
 		return 0;
 	}
 
-	if (!_sessions->child(sessionIndex)->hasChild("sessionid")) {
-		warning("Net::joinSession(): no sessionid in session");
-		return 0;
+	bool success = connectToSession(_localSessions[sessionIndex].host, _localSessions[sessionIndex].port);
+	if (!success) {
+		_vm->displayMessage(0, "Unable to join game session with address \"%s:%d\"", _localSessions[sessionIndex].host.c_str(), _localSessions[sessionIndex].port);
+		return false;
 	}
 
-	_sessionid = _sessions->child(sessionIndex)->child("sessionid")->asIntegerNumber();
-
-	return 1;
+	return true;
 }
 
 int Net::endSession() {
@@ -196,6 +259,7 @@ int Net::endSession() {
 	_sessionid = -1;
 	_sessionName.clear();
 	_myUserId = -1;
+	_fromUserId = -1;
 
 	return 0;
 }
@@ -280,7 +344,8 @@ int32 Net::updateQuerySessions() {
 	}
 
 	for (Common::Array<_localSession>::iterator i = _localSessions.begin(); i != _localSessions.end();) {
-		if (g_system->getMillis() - i->lastSeen > 5000) {
+		if (g_system->getMillis() - i->timestamp > 5000) {
+			// It has been 5 seconds since we have last seen this session, remove it.
 			i = _localSessions.erase(i);
 		} else {
 			i++;
@@ -299,8 +364,6 @@ void Net::stopQuerySessions() {
 	}
 	
 	_localSessions.clear();
-
-	_sessionsBeingQueried = false;
 	// No op
 }
 
@@ -369,12 +432,27 @@ void Net::remoteStartScript(int typeOfSend, int sendTypeParam, int priority, int
 
 	debug(1, "Net::remoteStartScript(%d, %d, %d, %d, ...)", typeOfSend, sendTypeParam, priority, argsCount); // PN_RemoteStartScriptCommand
 
-	remoteSendData(typeOfSend, sendTypeParam, PACKETTYPE_REMOTESTARTSCRIPT, res);
+	remoteSendData(typeOfSend, sendTypeParam, PACKETTYPE_REMOTESTARTSCRIPT, res, priority);
 }
 
-int Net::remoteSendData(int typeOfSend, int sendTypeParam, int type, Common::String data, int defaultRes, bool wait, int callid) {
-	warning("STUB: Net::remoteSendData(%d, %d, %d, ...", typeOfSend, sendTypeParam, type);
-	return defaultRes || 0;
+int Net::remoteSendData(int typeOfSend, int sendTypeParam, int type, Common::String data, int priority, int defaultRes, bool wait, int callid) {
+	if (!_enet || !_sessionHost || !_myUserId)
+		return defaultRes;
+	// Since I am lazy, instead of constructing the JSON object manually
+	// I'd rather parse it
+	Common::String res = Common::String::format(
+		"{\"cmd\":\"game\",\"from\":%d,\"to\":%d,\"toparam\":%d,"
+		"\"type\":%d, \"reliable\":%s, \"data\": { %s } }",
+		_myUserId, typeOfSend, sendTypeParam, type,
+		priority == PN_PRIORITY_HIGH ? "true" : "false", data.c_str());
+
+	debug(1, "NETWORK: Sending data: %s", res.c_str());
+	Common::JSONValue *str = Common::JSON::parse(res.c_str());
+	if (_isHost)
+		handleGameDataHost(str, sendTypeParam - 1);
+
+	_sessionHost->send(res.c_str(), 0, 0, priority == PN_PRIORITY_HIGH);
+	return defaultRes;
 }
 
 void Net::remoteSendArray(int typeOfSend, int sendTypeParam, int priority, int arrayIndex) {
@@ -418,10 +496,12 @@ void Net::remoteSendArray(int typeOfSend, int sendTypeParam, int priority, int a
 			jsonData += "]";
 	}
 
-	remoteSendData(typeOfSend, sendTypeParam, PACKETTYPE_REMOTESENDSCUMMARRAY, jsonData);
+	remoteSendData(typeOfSend, sendTypeParam, PACKETTYPE_REMOTESENDSCUMMARRAY, jsonData, priority);
 }
 
 int Net::remoteStartScriptFunction(int typeOfSend, int sendTypeParam, int priority, int defaultReturnValue, int argsCount, int32 *args) {
+	warning("STUB: Net::remoteStartScriptFunction(%d, %d, %d, %d, %d, ...)", typeOfSend, sendTypeParam, priority, defaultReturnValue, argsCount);
+	return 0;
 	int callid = _vm->_rnd.getRandomNumber(1000000);
 
 	Common::String res = Common::String::format("\"callid\":%d, \"params\": [", callid);
@@ -511,6 +591,7 @@ void Net::handleBroadcastData(Common::String data, Common::String host, int port
 	if (!json) {
 		// Just about anything could come from the broadcast address, so do not warn.
 		debug(1, "NETWORK: Not a JSON string, ignoring.");
+		return;
 	}
 	if (!json->isObject()){
 		warning("NETWORK: Received non JSON object from broadcast socket: \"%s\"", data.c_str());
@@ -527,7 +608,11 @@ void Net::handleBroadcastData(Common::String data, Common::String host, int port
 				Common::String resp = Common::String::format(
 					"{\"cmd\":\"session_resp\", \"name\":\"%s\", \"players\":%d}",
 					_sessionName.c_str(), _userNames.size());
-				_broadcastSocket->send(host, port, resp.c_str());
+				
+				// Send this through the session host instead of the broadcast socket
+				// because that will send the correct port to connect to.
+				// They'll still receive it though, that's the power of connection-less sockets.
+				_sessionHost->send_raw_data(host, port, resp.c_str());
 			}
 		} else if (command == "session_resp") {
 			if (!_sessionHost && root.contains("name") && root.contains("players")) {
@@ -537,14 +622,14 @@ void Net::handleBroadcastData(Common::String data, Common::String host, int port
 				// Check if we already know about this session:
 				for (Common::Array<_localSession>::iterator i = _localSessions.begin(); i != _localSessions.end(); i++) {
 					if (i->host == host && i->port == port) {
-						// Yes we do, Update the lastSeen timestamp,
-						i->lastSeen = g_system->getMillis();
+						// Yes we do, Update the timestamp,
+						i->timestamp = g_system->getMillis();
 						return;
 					}
 				}
 				// If we're here, assume that we had no clue about this session, store it.
 				_localSession session;
-				session.lastSeen = g_system->getMillis();
+				session.timestamp = g_system->getMillis();
 				session.host = host;
 				session.port = port;
 				session.name = name;
@@ -556,41 +641,126 @@ void Net::handleBroadcastData(Common::String data, Common::String host, int port
 }
 
 bool Net::remoteReceiveData(uint32 tickCount) {
-	// warning("STUB: Net::remoteReceiveData");
-	return false;
+	uint8 messageType = _sessionHost->service();
+	switch (messageType) {
+	case ENET_EVENT_TYPE_NONE:
+		return true;
+	case ENET_EVENT_TYPE_CONNECT:
+		{
+			debug(1, "NETWORK: New connection from %s:%d", _sessionHost->get_host().c_str(), _sessionHost->get_port());
+			return true;
+		}
+		return true;
+	case ENET_EVENT_TYPE_DISCONNECT:
+		{
+			debug(1, "NETWORK: Connection from %s:%d has disconnected.", _sessionHost->get_host().c_str(), _sessionHost->get_port());
+			// TODO: Let the game know.
+			return true;
+		}
+		return true;
+	case ENET_EVENT_TYPE_RECEIVE:
+		{
+			Common::String host = _sessionHost->get_host();
+			int port = _sessionHost->get_port();
+			debug(1, "NETWORK: Got data from %s:%d", host.c_str(), port);
+			
+			int peerIndex = _sessionHost->get_peer_index_from_host(host, port);
+			if (peerIndex == -1) {
+				warning("NETWORK: Unable to get peer index for host %s:%d", host.c_str(), port);
+				_sessionHost->destroy_packet();
+				return false;
+			}
 
-	_packetdata = nullptr;
+			Common::String data = _sessionHost->get_packet_data();
+			debug(1, "%s", data.c_str());
+			Common::JSONValue *json = Common::JSON::parse(data.c_str());
+			if (!json) {
+				// Just about anything could come from the broadcast address, so do not warn.
+				warning("NETWORK: Received non-JSON string.  Got: \"%s\"", data.c_str());
+				_sessionHost->destroy_packet();
+				return false;
+			}
+			if (!json->isObject()){
+				warning("NETWORK: Received non JSON object from broadcast socket: \"%s\"", data.c_str());
+				_sessionHost->destroy_packet();
+				return false;
+			}
 
-	if (!_packetdata || _packetdata->child("size")->asIntegerNumber() == 0)
-		return false;
+			Common::JSONObject root = json->asObject();
+			if (root.contains("cmd") && root["cmd"]->isString()) {
+				Common::String command = root["cmd"]->asString();
+				
+				if (command == "add_user") {
+					if (root.contains("name")) {
+						Common::String name = root["name"]->asString();
+						_userNames.push_back(name);
 
-	uint from = _packetdata->child("from")->asIntegerNumber();
-	uint type = _packetdata->child("type")->asIntegerNumber();
+						Common::String resp = Common::String::format(
+							"{\"cmd\":\"add_user_resp\",\"id\":%d}", _userNames.size());
+						_sessionHost->send(resp.c_str(), peerIndex);
+					}
+				} else if (command == "add_user_resp") {
+					if (root.contains("id")) {
+						_myUserId = root["id"]->asIntegerNumber();
+					}
+				} else if (command == "game") {
+					if (_isHost) 
+						handleGameDataHost(json, peerIndex);
+					else
+						handleGameData(json, peerIndex);
+				}
+			}
+			_sessionHost->destroy_packet();
+		}
+		return true;
+		break;
+	}
+	return true;
+}
+
+void Net::doNetworkOnceAFrame(int msecs) {
+	if (!_enet || !_sessionHost)
+		return;
+
+	remoteReceiveData(msecs);
+
+	if (_broadcastSocket)
+		serviceBroadcast();
+}
+
+void Net::handleGameData(Common::JSONValue *json, int peerIndex) {
+	_fromUserId = json->child("from")->asIntegerNumber();
+	uint type = json->child("type")->asIntegerNumber();
 
 	uint32 *params;
 
 	switch (type) {
 	case PACKETTYPE_REMOTESTARTSCRIPT:
 		{
-			int datalen = _packetdata->child("data")->child("params")->asArray().size();
+			int datalen = json->child("data")->child("params")->asArray().size();
 			params = (uint32 *)_tmpbuffer;
 
 			for (int i = 0; i < datalen; i++) {
-				*params = _packetdata->child("data")->child("params")->asArray()[i]->asIntegerNumber();
+				*params = json->child("data")->child("params")->asArray()[i]->asIntegerNumber();
 				params++;
 			}
 
 			_vm->runScript(_vm->VAR(_vm->VAR_REMOTE_START_SCRIPT), 1, 0, (int *)_tmpbuffer);
+			// FIXME: We are supposed pop a value returned from START_SCRIPT out of the stack,
+			// but when the host shoots something, it the script call gets nested, meaning it'll
+			// pop twice, causing an assertion error.  It would be nice to get this figured out
+			// in a case of a seriously very long game session or else, stack overflow...
+			// _vm->pop();
 		}
 		break;
 
 	case PACKETTYPE_REMOTESTARTSCRIPTRETURN:
 		{
-			int datalen = _packetdata->child("data")->child("params")->asArray().size();
+			int datalen = json->child("data")->child("params")->asArray().size();
 			params = (uint32 *)_tmpbuffer;
 
 			for (int i = 0; i < datalen; i++) {
-				*params = _packetdata->child("data")->child("params")->asArray()[i]->asIntegerNumber();
+				*params = json->child("data")->child("params")->asArray()[i]->asIntegerNumber();
 				params++;
 			}
 
@@ -598,9 +768,9 @@ bool Net::remoteReceiveData(uint32 tickCount) {
 			int result = _vm->pop();
 
 			Common::String res = Common::String::format("\"result\": %d, \"callid\": %d", result,
-					(int)_packetdata->child("data")->child("callid")->asIntegerNumber());
+					(int)json->child("data")->child("callid")->asIntegerNumber());
 
-			remoteSendData(PN_SENDTYPE_INDIVIDUAL, from, PACKETTYPE_REMOTESTARTSCRIPTRESULT, res);
+			remoteSendData(PN_SENDTYPE_INDIVIDUAL, _fromUserId, PACKETTYPE_REMOTESTARTSCRIPTRESULT, res, PN_PRIORITY_HIGH);
 		}
 		break;
 
@@ -618,11 +788,11 @@ bool Net::remoteReceiveData(uint32 tickCount) {
 			// Assume that the packet data contains a "SCUMM PACKAGE"
 			// and unpack it into an scumm array :-)
 
-			int dim1start = _packetdata->child("data")->child("dim1start")->asIntegerNumber();
-			int dim1end   = _packetdata->child("data")->child("dim1end")->asIntegerNumber();
-			int dim2start = _packetdata->child("data")->child("dim2start")->asIntegerNumber();
-			int dim2end   = _packetdata->child("data")->child("dim2end")->asIntegerNumber();
-			int atype     = _packetdata->child("data")->child("type")->asIntegerNumber();
+			int dim1start = json->child("data")->child("dim1start")->asIntegerNumber();
+			int dim1end   = json->child("data")->child("dim1end")->asIntegerNumber();
+			int dim2start = json->child("data")->child("dim2start")->asIntegerNumber();
+			int dim2end   = json->child("data")->child("dim2end")->asIntegerNumber();
+			int atype     = json->child("data")->child("type")->asIntegerNumber();
 
 			byte *data = _vm->defineArray(0, atype, dim2start, dim2end, dim1start, dim1end, true, &newArray);
 
@@ -631,7 +801,7 @@ bool Net::remoteReceiveData(uint32 tickCount) {
 			int32 value;
 
 			for (int i = 0; i < size; i++) {
-				value = _packetdata->child("data")->child("data")->asArray()[i]->asIntegerNumber();
+				value = json->child("data")->child("data")->asArray()[i]->asIntegerNumber();
 
 				switch (atype) {
 				case ScummEngine_v100he::kByteArray:
@@ -664,24 +834,59 @@ bool Net::remoteReceiveData(uint32 tickCount) {
 		warning("Moonbase: Received unknown network command %d", type);
 	}
 
-	return true;
 }
 
-void Net::remoteReceiveDataCallback(Common::JSONValue *response) {
-	_packetdata = new Common::JSONValue(*response);
+void Net::handleGameDataHost(Common::JSONValue *json, int peerIndex) {
+	int to = json->child("to")->asIntegerNumber();
+	int toparam = json->child("toparam")->asIntegerNumber();
+	bool reliable = json->child("reliable")->asBool();
 
-	if (_packetdata->child("size")->asIntegerNumber() != 0)
-		debug(1, "remoteReceiveData: Got: '%s'", response->stringify().c_str());
-}
-
-void Net::doNetworkOnceAFrame(int msecs) {
-	if (!_enet || !_sessionHost || _myUserId == -1)
-		return;
-
-	remoteReceiveData(msecs);
-
-	if (_broadcastSocket)
-		serviceBroadcast();
+	switch(to) {
+	case PN_SENDTYPE_INDIVIDUAL:
+		{
+			if (toparam == _myUserId) {
+				// It's for us, handle it.
+				handleGameData(json, peerIndex);
+				return;
+			}
+			// It's for someone else, transfer it.
+			if (_userNames.size() > (uint)toparam) {
+				warning("NETWORK: Got individual message for %d, but we don't know this person!  Ignoring...", toparam);
+				return;
+			}
+			if (toparam - 1 < (int)_userNames.size())
+				debug(1, "NETWORK: Transfering message to %s (%d), peerIndex: %d", _userNames[toparam - 1].c_str(), toparam, toparam - 2);
+			else
+				debug(1, "NETWORK: Transfering message to %d, peerIndex: %d", toparam, toparam - 2);
+			Common::String str = Common::JSON::stringify(json);
+			_sessionHost->send(str.c_str(), toparam - 2, 0, reliable);
+		}
+		break;
+	case PN_SENDTYPE_GROUP:
+		warning("STUB: PN_SENDTYPE_GROUP");
+		break;
+	case PN_SENDTYPE_HOST:
+		{
+			// It's for us, handle it.
+			handleGameData(json, peerIndex);
+		}
+		break;
+	case PN_SENDTYPE_ALL:
+		{
+			// It's for all of us, including the host.
+			if (_fromUserId != _myUserId)
+				handleGameData(json, peerIndex);
+			Common::String str = Common::JSON::stringify(json);
+			for (uint i = 0; i < _userNames.size(); i++) {
+				if (i != (uint)peerIndex)
+					_sessionHost->send(str.c_str(), i, 0, reliable);
+			}
+		}
+		break;
+	default:
+		warning("NETWORK: Unknown data type: %d", to);
+	
+	}
 }
 
 } // End of namespace Scumm

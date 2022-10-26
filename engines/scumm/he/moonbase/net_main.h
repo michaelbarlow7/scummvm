@@ -36,7 +36,7 @@ public:
 	~Net();
 
 	int hostGame(char *sessionName, char *userName);
-	int joinGame(char *IP, char *userName);
+	int joinGame(Common::String IP, char *userName);
 	int addUser(char *shortName, char *longName);
 	int removeUser();
 	int whoSentThis();
@@ -62,18 +62,18 @@ public:
 	bool initSession();
 	bool initUser();
 	void remoteStartScript(int typeOfSend, int sendTypeParam, int priority, int argsCount, int32 *args);
-	int remoteSendData(int typeOfSend, int sendTypeParam, int type, Common::String data, int defaultRes = 0, bool wait = false, int callid = 0);
+	int remoteSendData(int typeOfSend, int sendTypeParam, int type, Common::String data, int priority, int defaultRes = 0, bool wait = false, int callid = 0);
 	void remoteSendArray(int typeOfSend, int sendTypeParam, int priority, int arrayIndex);
 	int remoteStartScriptFunction(int typeOfSend, int sendTypeParam, int priority, int defaultReturnValue, int argsCount, int32 *args);
 	void doNetworkOnceAFrame(int msecs);
+	void handleGameData(Common::JSONValue *json, int peerIndex);
+	void handleGameDataHost(Common::JSONValue *json, int peerIndex);
 
 private:
+	bool connectToSession(Common::String address, int port);
 	bool serviceBroadcast();
 	void handleBroadcastData(Common::String data, Common::String host, int port);
 	bool remoteReceiveData(uint32 tickCount);
-	void createSessionCallback(Common::JSONValue *response);
-	void endSessionCallback(Common::JSONValue *response);
-	void remoteReceiveDataCallback(Common::JSONValue *response);
 
 public:
 	//getters
@@ -95,15 +95,14 @@ public:
 	
 	Networking::ENet *_enet;
 
-	byte *_packbuffer;
-	int _packetsize;
 	byte *_tmpbuffer;
-
-	Common::Array<ENetPeer> *_peers;
+	
 	Common::Array<Common::String> _userNames;
 
 	int _myUserId;
 	int _myPlayerKey;
+
+	int _fromUserId;
 
 	int _lastResult;
 
@@ -111,25 +110,20 @@ public:
 	Common::String _sessionName;
 	Networking::Host *_sessionHost;
 
+	bool _isHost;
+
 	typedef struct {
-		uint32 lastSeen;
 		Common::String host;
 		int port;
 		Common::String name;
 		int players;
+		uint32 timestamp;
 	} _localSession;
 
 	Common::Array<_localSession> _localSessions;
 
 	// For broadcasting our game session over LAN.
 	Networking::Socket *_broadcastSocket;
-
-	bool _sessionsBeingQueried;
-
-	Common::JSONValue *_sessions;
-	Common::JSONValue *_packetdata;
-
-	Common::String _serverprefix;
 };
 
 } // End of namespace Scumm
