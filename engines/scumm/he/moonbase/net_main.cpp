@@ -46,6 +46,9 @@ Net::Net(ScummEngine_v100he *vm) : _latencyTime(1), _fakeLatency(false), _vm(vm)
 	_isHost = false;
 	_sessionName = Common::String();
 	_localSessions = Common::Array<_localSession>();
+
+	_hostDataQueue = Common::Queue<Common::JSONValue *>();
+	_peerIndexQueue = Common::Queue<int>();
 }
 
 Net::~Net() {
@@ -200,17 +203,13 @@ int Net::createSession(char *name) {
 	_sessionid = -1;
 	_sessionHost = _enet->createHost("0.0.0.0", 0, 3);
 
-	// while(rq.state() == Networking::PROCESSING) {
-	// 	g_system->delayMillis(5);
-	// }
-
 	if (!_sessionHost) {
 		return 0;
 	}
 	
 	_isHost = true;
 	
-	// TODO: Config to enable/disable LAN broadcasting.
+	// TODO: Config to enable/disable LAN discovery.
 	_broadcastSocket = _enet->createSocket("0.0.0.0", 9130);
 	if (!_broadcastSocket) {
 		warning("NETWORK: Unable to create broadcast socket, your game will not be broadcast over LAN");
@@ -256,10 +255,15 @@ int Net::endSession() {
 	}
 	
 	_userNames.clear();	
+
 	_sessionid = -1;
 	_sessionName.clear();
+
 	_myUserId = -1;
 	_fromUserId = -1;
+
+	_hostDataQueue.clear();
+	_peerIndexQueue.clear();
 
 	return 0;
 }
@@ -448,10 +452,12 @@ int Net::remoteSendData(int typeOfSend, int sendTypeParam, int type, Common::Str
 
 	debug(1, "NETWORK: Sending data: %s", res.c_str());
 	Common::JSONValue *str = Common::JSON::parse(res.c_str());
-	if (_isHost)
-		handleGameDataHost(str, sendTypeParam - 1);
-
-	_sessionHost->send(res.c_str(), 0, 0, priority == PN_PRIORITY_HIGH);
+	if (_isHost) {
+		// handleGameDataHost(str, sendTypeParam - 1);
+		_hostDataQueue.push(str);
+		_peerIndexQueue.push(sendTypeParam - 1);
+	} else
+		_sessionHost->send(res.c_str(), 0, 0, priority == PN_PRIORITY_HIGH);
 	return defaultRes;
 }
 
@@ -704,7 +710,7 @@ bool Net::remoteReceiveData(uint32 tickCount) {
 						_myUserId = root["id"]->asIntegerNumber();
 					}
 				} else if (command == "game") {
-					if (_isHost) 
+					if (_isHost)
 						handleGameDataHost(json, peerIndex);
 					else
 						handleGameData(json, peerIndex);
@@ -726,6 +732,14 @@ void Net::doNetworkOnceAFrame(int msecs) {
 
 	if (_broadcastSocket)
 		serviceBroadcast();
+	
+	if (_isHost && _hostDataQueue.size()) {
+		if (_hostDataQueue.size() != _hostDataQueue.size())
+			warning("NETWORK: Sizes of data and peer index queues does not match!  Expect some wonky stuff");
+		Common::JSONValue *json = _hostDataQueue.pop();
+		int peerIndex = _peerIndexQueue.pop();
+		handleGameDataHost(json, peerIndex);
+	}
 }
 
 void Net::handleGameData(Common::JSONValue *json, int peerIndex) {
@@ -746,11 +760,7 @@ void Net::handleGameData(Common::JSONValue *json, int peerIndex) {
 			}
 
 			_vm->runScript(_vm->VAR(_vm->VAR_REMOTE_START_SCRIPT), 1, 0, (int *)_tmpbuffer);
-			// FIXME: We are supposed pop a value returned from START_SCRIPT out of the stack,
-			// but when the host shoots something, it the script call gets nested, meaning it'll
-			// pop twice, causing an assertion error.  It would be nice to get this figured out
-			// in a case of a seriously very long game session or else, stack overflow...
-			// _vm->pop();
+			_vm->pop();
 		}
 		break;
 

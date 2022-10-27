@@ -112,6 +112,9 @@ public:
 
 	bool _isHost;
 
+	Common::Queue<Common::JSONValue *> _hostDataQueue;
+	Common::Queue<int> _peerIndexQueue;
+
 	typedef struct {
 		Common::String host;
 		int port;
