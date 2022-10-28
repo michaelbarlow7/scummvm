@@ -35,6 +35,17 @@ public:
 	Net(ScummEngine_v100he *vm);
 	~Net();
 
+	struct Address {
+		Common::String host;
+		int port;
+		bool operator==(const Address &other) {
+			return host == other.host && port == other.port;	
+		};
+	};
+
+private:
+	Address getAddressFromString(Common::String address);
+public:
 	int hostGame(char *sessionName, char *userName);
 	int joinGame(Common::String IP, char *userName);
 	int addUser(char *shortName, char *longName);
@@ -85,6 +96,7 @@ public:
 
 private:
 	//mostly getters
+	int getTotalPlayers();
 
 public:
 	//fields
@@ -98,19 +110,17 @@ public:
 	byte *_tmpbuffer;
 	
 	Common::Array<Common::String> _userNames;
+	int _numBots;
 
 	int _myUserId;
-	int _myPlayerKey;
-
 	int _fromUserId;
 
-	int _lastResult;
-
-	int _sessionid;
+	int _sessionId; // Session ID received from the session server.
 	Common::String _sessionName;
 	Networking::Host *_sessionHost;
 
-	bool _isHost;
+	bool _isHost;  // true = hosting game, false = joined game.
+	bool _isShuttingDown;
 
 	Common::Queue<Common::JSONValue *> _hostDataQueue;
 	Common::Queue<int> _peerIndexQueue;

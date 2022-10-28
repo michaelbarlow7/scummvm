@@ -37,13 +37,13 @@ Net::Net(ScummEngine_v100he *vm) : _latencyTime(1), _fakeLatency(false), _vm(vm)
 	_broadcastSocket = nullptr;
 
 	_userNames = Common::Array<Common::String>();
+	_numBots = 0;
 	_myUserId = -1;
-	_myPlayerKey = -1;
 	_fromUserId = -1;
-	_lastResult = 0;
 
-	_sessionid = -1;
+	_sessionId = -1;
 	_isHost = false;
+	_isShuttingDown = false;
 	_sessionName = Common::String();
 	_localSessions = Common::Array<_localSession>();
 
@@ -54,6 +54,20 @@ Net::Net(ScummEngine_v100he *vm) : _latencyTime(1), _fakeLatency(false), _vm(vm)
 Net::~Net() {
 	free(_tmpbuffer);
 	closeProvider();
+}
+
+Net::Address Net::getAddressFromString(Common::String addressStr) {
+	Address address;
+	int portPos = addressStr.findFirstOf(":");
+	if (portPos > -1) {
+		address.port = atoi(addressStr.substr(0, portPos).c_str());
+		address.host = addressStr.substr(0, portPos);
+	} else {
+		// Assume that the string has no port defined.
+		address.host = addressStr;
+		address.port = 0;
+	}
+	return address;
 }
 
 int Net::hostGame(char *sessionName, char *userName) {
@@ -78,23 +92,17 @@ int Net::hostGame(char *sessionName, char *userName) {
 int Net::joinGame(Common::String IP, char *userName) {
 	// This gets called when attempting to join with the --join-game command line param.
 	debug(1, "Net::joinGame(\"%s\", \"%s\")", IP.c_str(), userName); // PN_JoinTCPIPGame
-	int port = 0;
-	// Parse and seperate the port from the IP address if any.
-	int portPos = IP.findFirstOf(":");
-	if (portPos > -1) {
-		port = atoi(IP.substr(portPos + 1).c_str());
-		IP = IP.substr(0, portPos);
-	}
+	Address address = getAddressFromString(IP);
 
 	bool isLocal = false;
 	// TODO: 20-bit block address (172.16.0.0 – 172.31.255.255)
-	if (IP == "127.0.0.1" || IP == "localhost" || IP == "255.255.255.255" ||
-		IP.matchString("10.*.*.*") || IP.matchString("192.168.*.*")) {
+	if (address.host == "127.0.0.1" || address.host == "localhost" || address.host == "255.255.255.255" ||
+		address.host.matchString("10.*.*.*") || address.host.matchString("192.168.*.*")) {
 		isLocal = true;
 	}
 
 	if (isLocal) {
-		if (!port) {
+		if (!address.port) {
 			// Local connection with no port specified.  Send a session request to get port:
 			startQuerySessions();
 			if (!_broadcastSocket) {
@@ -102,7 +110,7 @@ int Net::joinGame(Common::String IP, char *userName) {
 			}
 
 			_localSessions.clear();
-			_broadcastSocket->send(IP.c_str(), 9130, "{\"cmd\": \"get_session\"}");
+			_broadcastSocket->send(address.host.c_str(), 9130, "{\"cmd\": \"get_session\"}");
 			
 			uint tickCount = 0;
 			while(!_localSessions.size()) {
@@ -117,18 +125,18 @@ int Net::joinGame(Common::String IP, char *userName) {
 			if (!_localSessions.size())
 				return 0;
 
-			if (IP == "255.255.255.255")
-				IP = _localSessions[0].host;
-			port = _localSessions[0].port;
+			if (address.host == "255.255.255.255")
+				address.host = _localSessions[0].host;
+			address.port = _localSessions[0].port;
 			stopQuerySessions();
 		}
 		// We got our address and port, attempt connection:
-		if (connectToSession(IP, port)) {
+		if (connectToSession(address.host, address.port)) {
 			// Connected, add our user.
 			return addUser(userName, userName);
 		}
 	} else {
-		warning("STUB: joinGame: Public IP connection %s", IP.c_str());
+		warning("STUB: joinGame: Public IP connection %s", address.host.c_str());
 	}
 
 	return 0;
@@ -148,7 +156,7 @@ int Net::addUser(char *shortName, char *longName) {
 	// TODO: What's the difference between shortName and longName?
 	
 	if (_isHost) {
-		if (_userNames.size() > 4) {
+		if (getTotalPlayers() > 4) {
 			// We are full.
 			return 0;
 		}
@@ -200,7 +208,7 @@ int Net::createSession(char *name) {
 		return 0;
 	};
 
-	_sessionid = -1;
+	_sessionId = -1;
 	_sessionHost = _enet->createHost("0.0.0.0", 0, 3);
 
 	if (!_sessionHost) {
@@ -219,6 +227,10 @@ int Net::createSession(char *name) {
 	_sessionName = name;
 
 	return 1;
+}
+
+int Net::getTotalPlayers() {
+	return _userNames.size() + _numBots;
 }
 
 int Net::joinSession(int sessionIndex) {
@@ -245,6 +257,19 @@ int Net::joinSession(int sessionIndex) {
 int Net::endSession() {
 	debug(1, "Net::endSession()"); // PN_EndSession
 
+	if (_isHost && _hostDataQueue.size()) {
+		_isShuttingDown = true;
+		// Send out any remaining data from the queue before shutting down.
+		while (_hostDataQueue.size()) {
+			if (_hostDataQueue.size() != _hostDataQueue.size())
+				warning("NETWORK: Sizes of data and peer index queues does not match!  Expect some wonky stuff");
+			Common::JSONValue *json = _hostDataQueue.pop();
+			int peerIndex = _peerIndexQueue.pop();
+			handleGameDataHost(json, peerIndex);
+		_isShuttingDown = false;
+		}
+	}
+
 	if (_sessionHost) {
 		delete _sessionHost;
 		_sessionHost = nullptr;
@@ -254,9 +279,10 @@ int Net::endSession() {
 		_broadcastSocket = nullptr;
 	}
 	
-	_userNames.clear();	
+	_userNames.clear();
+	_numBots = 0;
 
-	_sessionid = -1;
+	_sessionId = -1;
 	_sessionName.clear();
 
 	_myUserId = -1;
@@ -270,7 +296,10 @@ int Net::endSession() {
 
 void Net::disableSessionJoining() {
 	debug(1, "Net::disableSessionJoining()"); // PN_DisableSessionPlayerJoin
-	warning("STUB: Net::disableSessionJoining()");
+	if (_broadcastSocket) {
+		delete _broadcastSocket;
+		_broadcastSocket = nullptr;
+	}
 }
 
 void Net::enableSessionJoining() {
@@ -278,7 +307,8 @@ void Net::enableSessionJoining() {
 }
 
 void Net::setBotsCount(int botsCount) {
-	warning("STUB: Net::setBotsCount(%d)", botsCount); // PN_SetAIPlayerCountKludge
+	debug(1, "Net::setBotsCount(%d)", botsCount); // PN_SetAIPlayerCountKludge
+	_numBots = botsCount;
 }
 
 int32 Net::setProviderByName(int32 parameter1, int32 parameter2) {
@@ -427,7 +457,7 @@ void Net::remoteStartScript(int typeOfSend, int sendTypeParam, int priority, int
 
 	if (argsCount > 2)
 		for (int i = 0; i < argsCount - 1; i++)
-			res += Common::String::format("%d, ", args[i]);
+			res += Common::String::format("%d,", args[i]);
 
 	if (argsCount > 1)
 		res += Common::String::format("%d]", args[argsCount - 1]);
@@ -442,11 +472,17 @@ void Net::remoteStartScript(int typeOfSend, int sendTypeParam, int priority, int
 int Net::remoteSendData(int typeOfSend, int sendTypeParam, int type, Common::String data, int priority, int defaultRes, bool wait, int callid) {
 	if (!_enet || !_sessionHost || !_myUserId)
 		return defaultRes;
+	
+	if (typeOfSend == PN_SENDTYPE_INDIVIDUAL && sendTypeParam == 0)
+		// In DirectPlay, sending a message to 0 means all players
+		// sooo, send all.
+		typeOfSend = PN_SENDTYPE_ALL;
+
 	// Since I am lazy, instead of constructing the JSON object manually
 	// I'd rather parse it
 	Common::String res = Common::String::format(
 		"{\"cmd\":\"game\",\"from\":%d,\"to\":%d,\"toparam\":%d,"
-		"\"type\":%d, \"reliable\":%s, \"data\": { %s } }",
+		"\"type\":%d, \"reliable\":%s, \"data\":{%s}}",
 		_myUserId, typeOfSend, sendTypeParam, type,
 		priority == PN_PRIORITY_HIGH ? "true" : "false", data.c_str());
 
@@ -467,7 +503,7 @@ void Net::remoteSendArray(int typeOfSend, int sendTypeParam, int priority, int a
 	ScummEngine_v100he::ArrayHeader *ah = (ScummEngine_v100he::ArrayHeader *)_vm->getResourceAddress(rtString, arrayIndex & ~0x33539000);
 
 	Common::String jsonData = Common::String::format(
-		"\"type\":%d, \"dim1start\":%d, \"dim1end\":%d, \"dim2start\":%d, \"dim2end\":%d, \"data\": [",
+		"\"type\":%d,\"dim1start\":%d,\"dim1end\":%d,\"dim2start\":%d,\"dim2end\":%d,\"data\":[",
 		ah->type, ah->dim1start, ah->dim1end, ah->dim2start, ah->dim2end);
 
 	int32 size = (FROM_LE_32(ah->dim1end) - FROM_LE_32(ah->dim1start) + 1) *
@@ -497,7 +533,7 @@ void Net::remoteSendArray(int typeOfSend, int sendTypeParam, int priority, int a
 		jsonData += Common::String::format("%d", data);
 
 		if (i < size - 1)
-			jsonData += ", ";
+			jsonData += ",";
 		else
 			jsonData += "]";
 	}
@@ -613,7 +649,7 @@ void Net::handleBroadcastData(Common::String data, Common::String host, int port
 			if (_sessionHost) {
 				Common::String resp = Common::String::format(
 					"{\"cmd\":\"session_resp\", \"name\":\"%s\", \"players\":%d}",
-					_sessionName.c_str(), _userNames.size());
+					_sessionName.c_str(), getTotalPlayers());
 				
 				// Send this through the session host instead of the broadcast socket
 				// because that will send the correct port to connect to.
@@ -628,8 +664,9 @@ void Net::handleBroadcastData(Common::String data, Common::String host, int port
 				// Check if we already know about this session:
 				for (Common::Array<_localSession>::iterator i = _localSessions.begin(); i != _localSessions.end(); i++) {
 					if (i->host == host && i->port == port) {
-						// Yes we do, Update the timestamp,
+						// Yes we do, Update the timestamp and player count.
 						i->timestamp = g_system->getMillis();
+						i->players = players;
 						return;
 					}
 				}
@@ -716,7 +753,8 @@ bool Net::remoteReceiveData(uint32 tickCount) {
 						handleGameData(json, peerIndex);
 				}
 			}
-			_sessionHost->destroyPacket();
+			if (_sessionHost)
+				_sessionHost->destroyPacket();
 		}
 		return true;
 		break;
@@ -743,6 +781,8 @@ void Net::doNetworkOnceAFrame(int msecs) {
 }
 
 void Net::handleGameData(Common::JSONValue *json, int peerIndex) {
+	if (!_enet || !_sessionHost)
+		return;
 	_fromUserId = json->child("from")->asIntegerNumber();
 	uint type = json->child("type")->asIntegerNumber();
 
@@ -884,7 +924,7 @@ void Net::handleGameDataHost(Common::JSONValue *json, int peerIndex) {
 	case PN_SENDTYPE_ALL:
 		{
 			// It's for all of us, including the host.
-			if (_fromUserId != _myUserId)
+			if (!_isShuttingDown)
 				handleGameData(json, peerIndex);
 			Common::String str = Common::JSON::stringify(json);
 			for (uint i = 0; i < _userNames.size(); i++) {
