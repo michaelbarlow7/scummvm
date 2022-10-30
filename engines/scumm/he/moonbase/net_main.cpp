@@ -36,8 +36,11 @@ Net::Net(ScummEngine_v100he *vm) : _latencyTime(1), _fakeLatency(false), _vm(vm)
 	_sessionHost = nullptr;
 	_broadcastSocket = nullptr;
 
-	_userNames = Common::Array<Common::String>();
+	_numUsers = 0;
 	_numBots = 0;
+
+	_userIdCounter = 0;
+
 	_myUserId = -1;
 	_fromUserId = -1;
 
@@ -70,10 +73,14 @@ Net::Address Net::getAddressFromString(Common::String addressStr) {
 	return address;
 }
 
+Common::String Net::getStringFromAddress(Address address) {
+	return Common::String::format("%s:%d", address.host.c_str(), address.port);
+}
+
 int Net::hostGame(char *sessionName, char *userName) {
 	if (createSession(sessionName)) {
 		if (addUser(userName, userName)) {
-			_myUserId = _userNames.size();
+			_myUserId = _userIdCounter;
 			return 1;
 		} else {
 			_vm->displayMessage(0, "Error Adding User \"%s\" to Session \"%s\"", userName, sessionName);
@@ -160,7 +167,8 @@ int Net::addUser(char *shortName, char *longName) {
 			// We are full.
 			return 0;
 		}
-		_userNames.push_back(longName);
+		_userIdToName[++_userIdCounter] = longName;
+		_numUsers++;
 		return 1;
 	}
 
@@ -173,10 +181,10 @@ int Net::addUser(char *shortName, char *longName) {
 	uint tickCount = 0;
 	while(_myUserId == -1) {
 		remoteReceiveData(12);
-		// Wait for one minute for our user id before giving up
+		// Wait for five minutes for our user id before giving up
 		tickCount += 5;
 		g_system->delayMillis(5);
-		if (tickCount >= 1000)
+		if (tickCount >= 5000)
 			break;
 	}
 	return (_myUserId > -1) ? 1 : 0;
@@ -230,7 +238,7 @@ int Net::createSession(char *name) {
 }
 
 int Net::getTotalPlayers() {
-	return _userNames.size() + _numBots;
+	return _numUsers + _numBots;
 }
 
 int Net::joinSession(int sessionIndex) {
@@ -279,8 +287,12 @@ int Net::endSession() {
 		_broadcastSocket = nullptr;
 	}
 	
-	_userNames.clear();
+	_numUsers = 0;
 	_numBots = 0;
+
+	_userIdCounter = 0;
+	_userIdToName.clear();
+	_userIdToPeerIndex.clear();
 
 	_sessionId = -1;
 	_sessionName.clear();
@@ -345,12 +357,37 @@ void Net::setFakeLatency(int time) {
 	_fakeLatency = true;
 }
 
-bool Net::destroyPlayer(int32 playerDPID) {
+bool Net::destroyPlayer(int32 userId) {
 	// bool PNETWIN_destroyplayer(DPID idPlayer)
-	debug(1, "Net::destroyPlayer(%d)", playerDPID);
-	warning("STUB: Net::destroyPlayer(%d)", playerDPID);
+	debug(1, "Net::destroyPlayer(%d)", userId);
+	if (_isHost) {
+		if (userId == 1)
+			return true;
+		if (_userIdToName.contains(userId)) {
+			_userIdToName.erase(userId);
+			_numUsers--;
 
-	return false;
+			if (_userIdToAddress.contains(userId)) {
+				Common::String address = _userIdToAddress[userId];
+				_addressToUserId.erase(address);
+				_userIdToAddress.erase(userId);
+			}
+
+			if (_userIdToPeerIndex.contains(userId)) {
+				_sessionHost->disconnectPeer(_userIdToPeerIndex[userId]);
+				_userIdToPeerIndex.erase(userId);
+			}
+			return true;
+		}
+		warning("NETWORK: destoryPlayer(%d): User does not exist!", userId);
+		return false;
+	}
+	
+	Common::String removerUser = "{\"cmd\":\"remove_user\"}";
+	_sessionHost->send(removerUser.c_str(), 0, 0, true);
+	_sessionHost->disconnectPeer(0);
+
+	return true;
 }
 
 int32 Net::startQuerySessions() {
@@ -470,7 +507,7 @@ void Net::remoteStartScript(int typeOfSend, int sendTypeParam, int priority, int
 }
 
 int Net::remoteSendData(int typeOfSend, int sendTypeParam, int type, Common::String data, int priority, int defaultRes, bool wait, int callid) {
-	if (!_enet || !_sessionHost || !_myUserId)
+	if (!_enet || !_sessionHost || _myUserId == -1)
 		return defaultRes;
 	
 	if (typeOfSend == PN_SENDTYPE_INDIVIDUAL && sendTypeParam == 0)
@@ -696,7 +733,16 @@ bool Net::remoteReceiveData(uint32 tickCount) {
 		return true;
 	case ENET_EVENT_TYPE_DISCONNECT:
 		{
-			debug(1, "NETWORK: Connection from %s:%d has disconnected.", _sessionHost->getHost().c_str(), _sessionHost->getPort());
+			Common::String address = Common::String::format("%s:%d", _sessionHost->getHost().c_str(), _sessionHost->getPort());
+
+			int userId = -1;
+			if (_addressToUserId.contains(address))
+				userId = _addressToUserId[address];
+			if (userId > -1)
+				debug(1, "NETWORK: User %s (%d) has disconnected.", _userIdToName[userId].c_str(), userId);
+			else
+				debug(1, "NETWORK: Connection from %s has disconnected.", address.c_str());
+
 			// TODO: Let the game know.
 			return true;
 		}
@@ -733,19 +779,38 @@ bool Net::remoteReceiveData(uint32 tickCount) {
 			if (root.contains("cmd") && root["cmd"]->isString()) {
 				Common::String command = root["cmd"]->asString();
 				
-				if (command == "add_user") {
+				if (_isHost && command == "add_user") {
 					if (root.contains("name")) {
 						Common::String name = root["name"]->asString();
-						_userNames.push_back(name);
+						if (getTotalPlayers() > 4) {
+							// We are full.
+							return 0;
+						}
+						_userIdToName[++_userIdCounter] = name;
+						_numUsers++;
+						
+						Common::String address = Common::String::format("%s:%d", host.c_str(), port);
+						_userIdToAddress[_userIdCounter] = address;
+						_addressToUserId[address] = _userIdCounter;
+						_userIdToPeerIndex[_userIdCounter] = peerIndex;
 
 						Common::String resp = Common::String::format(
-							"{\"cmd\":\"add_user_resp\",\"id\":%d}", _userNames.size());
+							"{\"cmd\":\"add_user_resp\",\"id\":%d}", _userIdCounter);
 						_sessionHost->send(resp.c_str(), peerIndex);
 					}
-				} else if (command == "add_user_resp") {
-					if (root.contains("id")) {
+				} else if (!_isHost && command == "add_user_resp") {
+					if (root.contains("id") && _myUserId == -1) {
 						_myUserId = root["id"]->asIntegerNumber();
 					}
+				} else if (_isHost && command == "remove_user") {
+					Common::String address = Common::String::format("%s:%d", host.c_str(), port);
+					int userId = -1;
+					userId = _addressToUserId[address];
+					if (userId == -1) {
+						warning("Got remove_user but we don't know the user for address: %s", address.c_str());
+						return false;
+					}
+					destroyPlayer(userId);
 				} else if (command == "game") {
 					if (_isHost)
 						handleGameDataHost(json, peerIndex);
@@ -900,16 +965,13 @@ void Net::handleGameDataHost(Common::JSONValue *json, int peerIndex) {
 				return;
 			}
 			// It's for someone else, transfer it.
-			if (_userNames.size() > (uint)toparam) {
+			if (!_userIdToName.contains(toparam)) {
 				warning("NETWORK: Got individual message for %d, but we don't know this person!  Ignoring...", toparam);
 				return;
 			}
-			if (toparam - 1 < (int)_userNames.size())
-				debug(1, "NETWORK: Transfering message to %s (%d), peerIndex: %d", _userNames[toparam - 1].c_str(), toparam, toparam - 2);
-			else
-				debug(1, "NETWORK: Transfering message to %d, peerIndex: %d", toparam, toparam - 2);
+			debug(1, "NETWORK: Transfering message to %s (%d), peerIndex: %d", _userIdToName[toparam].c_str(), toparam, _userIdToPeerIndex[toparam]);
 			Common::String str = Common::JSON::stringify(json);
-			_sessionHost->send(str.c_str(), toparam - 2, 0, reliable);
+			_sessionHost->send(str.c_str(), _userIdToPeerIndex[toparam], 0, reliable);
 		}
 		break;
 	case PN_SENDTYPE_GROUP:
@@ -924,18 +986,18 @@ void Net::handleGameDataHost(Common::JSONValue *json, int peerIndex) {
 	case PN_SENDTYPE_ALL:
 		{
 			// It's for all of us, including the host.
+			// Don't handle data if we're shutting down, or the game will crash.
 			if (!_isShuttingDown)
 				handleGameData(json, peerIndex);
 			Common::String str = Common::JSON::stringify(json);
-			for (uint i = 0; i < _userNames.size(); i++) {
-				if (i != (uint)peerIndex)
+			for (int i = 0; i < _numUsers; i++) {
+				if (i != peerIndex)
 					_sessionHost->send(str.c_str(), i, 0, reliable);
 			}
 		}
 		break;
 	default:
 		warning("NETWORK: Unknown data type: %d", to);
-	
 	}
 }
 

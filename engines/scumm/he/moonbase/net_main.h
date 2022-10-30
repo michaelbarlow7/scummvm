@@ -45,6 +45,7 @@ public:
 
 private:
 	Address getAddressFromString(Common::String address);
+	Common::String getStringFromAddress(Address address);
 public:
 	int hostGame(char *sessionName, char *userName);
 	int joinGame(Common::String IP, char *userName);
@@ -60,7 +61,7 @@ public:
 	void setBotsCount(int botsCount);
 	int32 setProviderByName(int32 parameter1, int32 parameter2);
 	void setFakeLatency(int time);
-	bool destroyPlayer(int32 playerDPID);
+	bool destroyPlayer(int32 userId);
 	int32 startQuerySessions();
 	int32 updateQuerySessions();
 	void stopQuerySessions();
@@ -109,8 +110,13 @@ public:
 
 	byte *_tmpbuffer;
 	
-	Common::Array<Common::String> _userNames;
+	int _numUsers;
 	int _numBots;
+	int _userIdCounter;
+	Common::HashMap<int, Common::String> _userIdToName;
+	Common::HashMap<int, int> _userIdToPeerIndex;
+	Common::HashMap<int, Common::String> _userIdToAddress;
+	Common::HashMap<Common::String, int> _addressToUserId;
 
 	int _myUserId;
 	int _fromUserId;
