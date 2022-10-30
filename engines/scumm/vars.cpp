@@ -745,7 +745,7 @@ void ScummEngine_v100he::resetScummVars() {
 	ScummEngine_v99he::resetScummVars();
 
 	if (_game.id == GID_MOONBASE) {
-#ifdef USE_LIBCURL
+#ifdef USE_ENET
 		VAR(VAR_NETWORK_AVAILABLE) = 1;
 #else
 		VAR(VAR_NETWORK_AVAILABLE) = 0;

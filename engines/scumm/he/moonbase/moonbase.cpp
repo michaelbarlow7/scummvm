@@ -24,7 +24,7 @@
 #include "scumm/he/intern_he.h"
 #include "scumm/he/moonbase/moonbase.h"
 #include "scumm/he/moonbase/ai_main.h"
-#ifdef USE_LIBCURL
+#ifdef USE_ENET
 #include "scumm/he/moonbase/net_main.h"
 #endif
 
@@ -36,7 +36,7 @@ Moonbase::Moonbase(ScummEngine_v100he *vm) : _vm(vm) {
 	initFOW();
 
 	_ai = new AI(_vm);
-#ifdef USE_LIBCURL
+#ifdef USE_ENET
 	_net = new Net(_vm);
 #endif
 }
@@ -44,7 +44,7 @@ Moonbase::Moonbase(ScummEngine_v100he *vm) : _vm(vm) {
 Moonbase::~Moonbase() {
 	delete _exe;
 	delete _ai;
-#ifdef USE_LIBCURL
+#ifdef USE_ENET
 	delete _net;
 #endif
 }

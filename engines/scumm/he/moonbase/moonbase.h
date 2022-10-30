@@ -73,7 +73,7 @@ public:
 	uint32 _fowSentinelConditionBits;
 
 	AI *_ai;
-#ifdef USE_LIBCURL
+#ifdef USE_ENET
 	Net *_net;
 #endif
 
