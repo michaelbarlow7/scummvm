@@ -181,7 +181,7 @@ int Net::addUser(char *shortName, char *longName) {
 	uint tickCount = 0;
 	while(_myUserId == -1) {
 		remoteReceiveData(12);
-		// Wait for five minutes for our user id before giving up
+		// Wait for five seconds for our user id before giving up
 		tickCount += 5;
 		g_system->delayMillis(5);
 		if (tickCount >= 5000)
