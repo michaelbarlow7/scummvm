@@ -62,7 +62,7 @@ public:
 	int32 setProviderByName(int32 parameter1, int32 parameter2);
 	void setFakeLatency(int time);
 	bool destroyPlayer(int32 userId);
-	int32 startQuerySessions();
+	int32 startQuerySessions(bool connectToSessionServer = true);
 	int32 updateQuerySessions();
 	void stopQuerySessions();
 	int querySessions();
@@ -85,6 +85,8 @@ private:
 	bool connectToSession(Common::String address, int port);
 	bool serviceBroadcast();
 	void handleBroadcastData(Common::String data, Common::String host, int port);
+	void serviceSessionServer();
+	void handleSessionServerData(Common::String data);
 	bool remoteReceiveData(uint32 tickCount);
 
 public:
@@ -105,6 +107,8 @@ public:
 	bool _fakeLatency;
 
 	ScummEngine_v100he *_vm;
+
+	Common::String _gameVersion;
 	
 	Networking::ENet *_enet;
 
@@ -131,18 +135,25 @@ public:
 	Common::Queue<Common::JSONValue *> _hostDataQueue;
 	Common::Queue<int> _peerIndexQueue;
 
-	typedef struct {
+	struct Session {
+		bool local = false;
+		int id = -1;
 		Common::String host;
 		int port;
 		Common::String name;
 		int players;
 		uint32 timestamp;
-	} _localSession;
+	};
 
-	Common::Array<_localSession> _localSessions;
+	Common::Array<Session> _sessions;
+	int _hostPort;
 
 	// For broadcasting our game session over LAN.
 	Networking::Socket *_broadcastSocket;
+
+	// For creating/joining sessions over the Internet.
+	Networking::Host *_sessionServerHost;
+	int _sessionServerPeer;
 };
 
 } // End of namespace Scumm

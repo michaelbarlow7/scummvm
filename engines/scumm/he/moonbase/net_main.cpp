@@ -29,12 +29,17 @@ namespace Scumm {
 Net::Net(ScummEngine_v100he *vm) : _latencyTime(1), _fakeLatency(false), _vm(vm) {
 	//some defaults for fields
 
+	_gameVersion = _vm->_game.variant; // 1.0/1.1/Demo
+
 	_tmpbuffer = (byte *)malloc(MAX_PACKET_SIZE);
 
 	_enet = nullptr;
 
 	_sessionHost = nullptr;
 	_broadcastSocket = nullptr;
+
+	_sessionServerPeer = -1;
+	_sessionServerHost = nullptr;
 
 	_numUsers = 0;
 	_numBots = 0;
@@ -48,7 +53,9 @@ Net::Net(ScummEngine_v100he *vm) : _latencyTime(1), _fakeLatency(false), _vm(vm)
 	_isHost = false;
 	_isShuttingDown = false;
 	_sessionName = Common::String();
-	_localSessions = Common::Array<_localSession>();
+	_sessions = Common::Array<Session>();
+	
+	_hostPort = 0;
 
 	_hostDataQueue = Common::Queue<Common::JSONValue *>();
 	_peerIndexQueue = Common::Queue<int>();
@@ -63,7 +70,7 @@ Net::Address Net::getAddressFromString(Common::String addressStr) {
 	Address address;
 	int portPos = addressStr.findFirstOf(":");
 	if (portPos > -1) {
-		address.port = atoi(addressStr.substr(0, portPos).c_str());
+		address.port = atoi(addressStr.substr(portPos + 1).c_str());
 		address.host = addressStr.substr(0, portPos);
 	} else {
 		// Assume that the string has no port defined.
@@ -111,16 +118,16 @@ int Net::joinGame(Common::String IP, char *userName) {
 	if (isLocal) {
 		if (!address.port) {
 			// Local connection with no port specified.  Send a session request to get port:
-			startQuerySessions();
+			startQuerySessions(false);
 			if (!_broadcastSocket) {
 				return 0;
 			}
 
-			_localSessions.clear();
+			_sessions.clear();
 			_broadcastSocket->send(address.host.c_str(), 9130, "{\"cmd\": \"get_session\"}");
 			
 			uint tickCount = 0;
-			while(!_localSessions.size()) {
+			while(!_sessions.size()) {
 				serviceBroadcast();
 				// Wait for one minute for response before giving up
 				tickCount += 5;
@@ -129,18 +136,20 @@ int Net::joinGame(Common::String IP, char *userName) {
 					break;
 			}
 
-			if (!_localSessions.size())
+			if (!_sessions.size())
 				return 0;
 
 			if (address.host == "255.255.255.255")
-				address.host = _localSessions[0].host;
-			address.port = _localSessions[0].port;
+				address.host = _sessions[0].host;
+			address.port = _sessions[0].port;
 			stopQuerySessions();
 		}
 		// We got our address and port, attempt connection:
 		if (connectToSession(address.host, address.port)) {
 			// Connected, add our user.
 			return addUser(userName, userName);
+		} else {
+			warning("NETWORK: Failed to connect to %s:%d", address.host.c_str(), address.port);
 		}
 	} else {
 		warning("STUB: joinGame: Public IP connection %s", address.host.c_str());
@@ -150,7 +159,10 @@ int Net::joinGame(Common::String IP, char *userName) {
 }
 
 bool Net::connectToSession(Common::String address, int port) {
-	_sessionHost = _enet->connectToHost(address, port);
+	if (_hostPort)
+		_sessionHost = _enet->connectToHost("0.0.0.0", _hostPort, address, port);
+	else
+		_sessionHost = _enet->connectToHost(address, port);
 	if (!_sessionHost)
 		return false;
 	
@@ -169,6 +181,13 @@ int Net::addUser(char *shortName, char *longName) {
 		}
 		_userIdToName[++_userIdCounter] = longName;
 		_numUsers++;
+		if (_sessionId && _sessionServerPeer > -1) {
+			// Update player count to session server {
+			Common::String updatePlayers = Common::String::format(
+				"{\"cmd\":\"update_players\",\"game\":\"moonbase\",\"version\":\"%s\",\"players\":%d}",
+				_gameVersion.c_str(), getTotalPlayers());
+			_sessionHost->send(updatePlayers.c_str(), _sessionServerPeer);
+		}
 		return 1;
 	}
 
@@ -217,22 +236,32 @@ int Net::createSession(char *name) {
 	};
 
 	_sessionId = -1;
-	_sessionHost = _enet->createHost("0.0.0.0", 0, 3);
+	_sessionName = name;
+	// Four peers (0-3) because we are reserving one for our connection to the session server. 
+	_sessionHost = _enet->createHost("0.0.0.0", 0, 4);
 
 	if (!_sessionHost) {
 		return 0;
 	}
 	
 	_isHost = true;
-	
+	// TODO: Config to enable/disable Internet sessions.
+	if (_sessionHost->connectPeer("127.0.0.1", 9120)) {
+		_sessionServerPeer = _sessionHost->getPeerIndexFromHost("127.0.0.1", 9120);
+		// Create session to the session server.
+		Common::String req = Common::String::format(
+			"{\"cmd\":\"host_session\",\"game\":\"moonbase\",\"version\":\"%s\",\"name\":\"%s\"}",
+			_gameVersion.c_str(), name);
+		_sessionHost->send(req.c_str(), _sessionServerPeer);
+	} else {
+		warning("Failed to connect to session server!  This game will not be listed on the Internet");
+	}
+
 	// TODO: Config to enable/disable LAN discovery.
 	_broadcastSocket = _enet->createSocket("0.0.0.0", 9130);
 	if (!_broadcastSocket) {
 		warning("NETWORK: Unable to create broadcast socket, your game will not be broadcast over LAN");
-		return 1;
 	}
-
-	_sessionName = name;
 
 	return 1;
 }
@@ -243,19 +272,35 @@ int Net::getTotalPlayers() {
 
 int Net::joinSession(int sessionIndex) {
 	debug(1, "Net::joinSession(%d)", sessionIndex); // PN_JoinSession
-	if (_localSessions.empty()) {
+	if (_sessions.empty()) {
 		warning("Net::joinSession(): no sessions");
 		return 0;
 	}
 
-	if (sessionIndex >= (int)_localSessions.size()) {
-		warning("Net::joinSession(): session number too big: %d >= %d", sessionIndex, _localSessions.size());
+	if (sessionIndex >= (int)_sessions.size()) {
+		warning("Net::joinSession(): session number too big: %d >= %d", sessionIndex, _sessions.size());
 		return 0;
 	}
 
-	bool success = connectToSession(_localSessions[sessionIndex].host, _localSessions[sessionIndex].port);
+	Session session = _sessions[sessionIndex];
+	if (!session.local && _sessionServerHost) {
+		Common::String joinSession = Common::String::format(
+			"{\"cmd\":\"join_session\",\"game\":\"moonbase\",\"version\":\"%s\",\"session\":%d}",
+			_gameVersion.c_str(), sessionIndex);
+		_sessionServerHost->send(joinSession.c_str(), 0);
+
+		// Give the host time to hole punch us.
+		g_system->delayMillis(500);
+	}
+
+	// Disconnect the session server to free up and use the same port we've connected previously.
+	_sessionServerHost->disconnectPeer(0);
+	delete _sessionServerHost;
+	_sessionServerHost = nullptr;
+
+	bool success = connectToSession(session.host, session.port);
 	if (!success) {
-		_vm->displayMessage(0, "Unable to join game session with address \"%s:%d\"", _localSessions[sessionIndex].host.c_str(), _localSessions[sessionIndex].port);
+		_vm->displayMessage(0, "Unable to join game session with address \"%s:%d\"", session.host.c_str(), session.port);
 		return false;
 	}
 
@@ -278,14 +323,26 @@ int Net::endSession() {
 		}
 	}
 
+	if (_sessionHost && _sessionServerPeer > -1) {
+		_sessionHost->disconnectPeer(_sessionServerPeer);
+		_sessionServerPeer = -1;
+	}
+
 	if (_sessionHost) {
 		delete _sessionHost;
 		_sessionHost = nullptr;
+	}
+	if (_sessionServerHost) {
+		_sessionServerHost->disconnectPeer(0);
+		delete _sessionServerHost;
+		_sessionServerHost = nullptr;
 	}
 	if (_broadcastSocket) {
 		delete _broadcastSocket;
 		_broadcastSocket = nullptr;
 	}
+
+	_hostPort = 0;
 	
 	_numUsers = 0;
 	_numBots = 0;
@@ -308,6 +365,10 @@ int Net::endSession() {
 
 void Net::disableSessionJoining() {
 	debug(1, "Net::disableSessionJoining()"); // PN_DisableSessionPlayerJoin
+	if (_sessionHost && _sessionServerPeer > -1) {
+		_sessionHost->disconnectPeer(_sessionServerPeer);
+		_sessionServerPeer = -1;
+	}
 	if (_broadcastSocket) {
 		delete _broadcastSocket;
 		_broadcastSocket = nullptr;
@@ -337,14 +398,14 @@ int32 Net::setProviderByName(int32 parameter1, int32 parameter2) {
 
 	// Emulate that we found a TCP/IP provider
 
-	// Create a new ENet instance and initalize the library.
+	// Create a new ENet instance and initialize the library.
 	if (_enet) {
 		warning("Net::setProviderByName: ENet instance already exists.");
 		return 1;
 	}
 	_enet = new Networking::ENet();
-	if (!_enet->initalize()) {
-		_vm->displayMessage(0, "Unable to initalize ENet library.");
+	if (!_enet->initialize()) {
+		_vm->displayMessage(0, "Unable to initialize ENet library.");
 		Net::closeProvider();
 		return 0;
 	}
@@ -390,51 +451,77 @@ bool Net::destroyPlayer(int32 userId) {
 	return true;
 }
 
-int32 Net::startQuerySessions() {
-	// warning("STUB: Net::startQuerySessions()");
+int32 Net::startQuerySessions(bool connectToSessionServer) {
 	debug(1, "Net::startQuerySessions()");
 
+	// TODO: Config to enable/disable Internet sessions.
+	if (!_sessionServerHost && connectToSessionServer) {
+		// TODO: Configurable session server address and port
+		_sessionServerHost = _enet->connectToHost("127.0.0.1", 9120);
+		if (!_sessionServerHost)
+			warning("Failed to connect to session server!  You'll won't be able to join internet sessions");
+	}
+
+	// TODO: Config to enable/disable LAN discovery.
 	if (!_broadcastSocket) {
 		_broadcastSocket = _enet->createSocket("0.0.0.0", 0);
 	}
-	// debug(1, "Net::startQuerySessions(): got %d", (int)_sessions->countChildren());
 	return 0;
 }
 
 int32 Net::updateQuerySessions() {
-	debug(1, "Net::updateQuerySessions()"); // UpdateQuerySessions
+	debug(1, "Net::updateQuerySessions(): begin"); // UpdateQuerySessions
 
+	if (_sessionServerHost) {
+		// Get internet-based sessions from the sessin server.
+		Common::String getSessions = Common::String::format(
+			"{\"cmd\":\"get_sessions\",\"game\":\"moonbase\",\"version\":\"%s\"}", _gameVersion.c_str());
+		_sessionServerHost->send(getSessions.c_str(), 0);
+
+		uint32 tickCount = g_system->getMillis() + 200;
+		while(g_system->getMillis() < tickCount) {
+			serviceSessionServer();
+		}
+	}
 	if (_broadcastSocket) {
 		// Send a session query to the broadcast address.
 		_broadcastSocket->send("255.255.255.255", 9130, "{\"cmd\": \"get_session\"}");
-	}
-	
-	uint32 tickCount = g_system->getMillis() + 100;
-	while(g_system->getMillis() < tickCount) {
-		serviceBroadcast();
+
+		uint32 tickCount = g_system->getMillis() + 100;
+		while(g_system->getMillis() < tickCount) {
+			serviceBroadcast();
+		}
 	}
 
-	for (Common::Array<_localSession>::iterator i = _localSessions.begin(); i != _localSessions.end();) {
+	for (Common::Array<Session>::iterator i = _sessions.begin(); i != _sessions.end();) {
 		if (g_system->getMillis() - i->timestamp > 5000) {
 			// It has been 5 seconds since we have last seen this session, remove it.
-			i = _localSessions.erase(i);
+			i = _sessions.erase(i);
 		} else {
 			i++;
 		}
 	}
 
-	return _localSessions.size();
+	debug(1, "Net::updateQuerySessions(): got %d", _sessions.size());
+	return _sessions.size();
 }
 
 void Net::stopQuerySessions() {
 	debug(1, "Net::stopQuerySessions()"); // StopQuerySessions
+
+	if (_sessionServerHost) {
+		// TODO: Do not delete session server host if we're relaying in-game data.
+		_sessionServerHost->disconnectPeer(0);
+		delete _sessionServerHost;
+		_sessionServerHost = nullptr;
+	}
 
 	if (_broadcastSocket) {
 		delete _broadcastSocket;
 		_broadcastSocket = nullptr;
 	}
 	
-	_localSessions.clear();
+	_sessions.clear();
 	// No op
 }
 
@@ -458,7 +545,7 @@ int Net::setProvider(int providerIndex) {
 int Net::closeProvider() {
 	debug(1, "Net::closeProvider()"); // PN_CloseProvider
 	if (_enet) {
-		// Destroy all ENet instances and deinitalize.
+		// Destroy all ENet instances and deinitialize.
 		if (_sessionHost) {
 			endSession();
 		}
@@ -612,44 +699,136 @@ bool Net::getIPfromName(char *ip, int ipLength, char *nameBuffer) {
 void Net::getSessionName(int sessionNumber, char *buffer, int length) {
 	debug(1, "Net::getSessionName(%d, ..., %d)", sessionNumber, length); // PN_GetSessionName
 
-	if (_localSessions.empty()) {
+	if (_sessions.empty()) {
 		*buffer = '\0';
 		warning("Net::getSessionName(): no sessions");
 		return;
 	}
 
-	if (sessionNumber >= (int)_localSessions.size()) {
+	if (sessionNumber >= (int)_sessions.size()) {
 		*buffer = '\0';
-		warning("Net::getSessionName(): session number too big: %d >= %d", sessionNumber, (int)_localSessions.size());
+		warning("Net::getSessionName(): session number too big: %d >= %d", sessionNumber, (int)_sessions.size());
 		return;
 	}
 
-	Common::strlcpy(buffer, _localSessions[sessionNumber].name.c_str(), length);
+	Common::strlcpy(buffer, _sessions[sessionNumber].name.c_str(), length);
 }
 
 int Net::getSessionPlayerCount(int sessionNumber) {
 	debug(1, "Net::getSessionPlayerCount(%d)", sessionNumber); // case GET_SESSION_PLAYER_COUNT_KLUDGE:
 
-	if (_localSessions.empty()) {
+	if (_sessions.empty()) {
 		warning("Net::getSessionPlayerCount(): no sessions");
 		return 0;
 	}
 
-	if (sessionNumber >= (int)_localSessions.size()) {
-		warning("Net::getSessionPlayerCount(): session number too big: %d >= %d", sessionNumber, (int)_localSessions.size());
+	if (sessionNumber >= (int)_sessions.size()) {
+		warning("Net::getSessionPlayerCount(): session number too big: %d >= %d", sessionNumber, (int)_sessions.size());
 		return 0;
 	}
 
-	if (_localSessions[sessionNumber].players < 1) {
+	if (_sessions[sessionNumber].players < 1) {
 		warning("Net::getSessionPlayerCount(): no players in session");
 		return 0;
 	}
 
-	return _localSessions[sessionNumber].players;
+	return _sessions[sessionNumber].players;
 }
 
 void Net::getProviderName(int providerIndex, char *buffer, int length) {
 	warning("STUB: Net::getProviderName(%d, \"%s\", %d)", providerIndex, buffer, length); // PN_GetProviderName
+}
+
+void Net::serviceSessionServer() {
+	if (!_sessionServerHost)
+		return;
+	
+	uint8 type = _sessionServerHost->service();
+	switch(type) {
+	case ENET_EVENT_TYPE_NONE:
+		break;
+	case ENET_EVENT_TYPE_DISCONNECT:
+		warning("NETWORK: Lost connection to session server");
+		delete _sessionServerHost;
+		_sessionServerHost = nullptr;
+		break;
+	case ENET_EVENT_TYPE_RECEIVE:
+		handleSessionServerData(_sessionServerHost->getPacketData());
+		break;
+	}
+}
+
+void Net::handleSessionServerData(Common::String data) {
+	debug(1, "NETWORK: Received data from session server.  Data: %s", data.c_str());
+
+	Common::JSONValue *json = Common::JSON::parse(data.c_str());
+	if (!json) {
+		warning("NETWORK: Received non-JSON string from session server ignoring.");
+		return;
+	}
+	if (!json->isObject()){
+		warning("NETWORK: Received non-JSON object from session server: \"%s\"", data.c_str());
+		return;
+	}
+
+	Common::JSONObject root = json->asObject();
+	if (root.contains("cmd") && root["cmd"]->isString()) {
+		Common::String command = root["cmd"]->asString();
+		if (command == "host_session_resp") {
+			if (root.contains("id")) {
+				_sessionId = root["id"]->asIntegerNumber();
+				debug(1, "NETWORK: Our session id from session server: %d", _sessionId);
+			}
+		} else if (command == "get_sessions_resp") {
+			if (root.contains("address") && root.contains("sessions")) {
+				_hostPort = getAddressFromString(root["address"]->asString()).port;
+				Common::JSONArray sessions = root["sessions"]->asArray();
+				for (uint i = 0; i != sessions.size(); i++) {
+					Common::JSONObject sessionData = sessions[i]->asObject();
+					Address sessionAddress = getAddressFromString(sessionData["address"]->asString());
+
+					// Check if we already know about this session:
+					bool makeNewSession = true;
+					for (Common::Array<Session>::iterator j = _sessions.begin(); j != _sessions.end(); j++) {
+						if (j->id == sessionData["id"]->asIntegerNumber()) {
+							// Yes we do, Update the timestamp and player count.
+							makeNewSession = false;
+							if (!j->local) {
+								// Only update if it's not a local session
+								j->timestamp = g_system->getMillis();
+								j->players = sessionData["players"]->asIntegerNumber();
+							}
+							break;
+						}
+					}
+					
+					if (!makeNewSession)
+						continue;
+
+					Session session;
+					session.id = sessionData["id"]->asIntegerNumber();
+					session.name = sessionData["name"]->asString();
+					session.players = sessionData["players"]->asIntegerNumber();
+					session.host = sessionAddress.host;
+					session.port = sessionAddress.port;
+					session.timestamp = g_system->getMillis();
+					_sessions.push_back(session);
+				}
+			}
+		} else if (command == "joining_session") {
+			// Someone is gonna attempt to join our session.  Get their address and hole-punch:
+			if (_sessionHost && root.contains("address")) {
+				Address address = getAddressFromString(root["address"]->asString());
+				// By sending an UDP packet, the router will open a hole for the
+				// destinated address, allowing someone with the same address to
+				// communicate with us.  This does not work with every router though...
+				// 
+				// More infomation: https://en.wikipedia.org/wiki/UDP_hole_punching
+				debug(1, "NETWORK: Hole punching %s:%d", address.host.c_str(), address.port);
+				_sessionHost->sendRawData(address.host, address.port, "");
+			}
+		}
+	}
 }
 
 bool Net::serviceBroadcast() {
@@ -685,8 +864,8 @@ void Net::handleBroadcastData(Common::String data, Common::String host, int port
 			// Session query.
 			if (_sessionHost) {
 				Common::String resp = Common::String::format(
-					"{\"cmd\":\"session_resp\", \"name\":\"%s\", \"players\":%d}",
-					_sessionName.c_str(), getTotalPlayers());
+					"{\"cmd\":\"session_resp\",\"version\":\"%s\",\"id\":%d,\"name\":\"%s\",\"players\":%d}",
+					_gameVersion.c_str(), _sessionId, _sessionName.c_str(), getTotalPlayers());
 				
 				// Send this through the session host instead of the broadcast socket
 				// because that will send the correct port to connect to.
@@ -694,12 +873,34 @@ void Net::handleBroadcastData(Common::String data, Common::String host, int port
 				_sessionHost->sendRawData(host, port, resp.c_str());
 			}
 		} else if (command == "session_resp") {
-			if (!_sessionHost && root.contains("name") && root.contains("players")) {
+			if (!_sessionHost && root.contains("version") && root.contains("id") && root.contains("name") && root.contains("players")) {
+				Common::String version = root["version"]->asString();
+				int sessionId = root["id"]->asIntegerNumber();
 				Common::String name = root["name"]->asString();
 				int players = root["players"]->asIntegerNumber();
 
+				if (version != _gameVersion)
+					// Version mismatch.
+					return;
+
+				if (players < 1 || players > 3)
+					// This session is either full or not finished initalizing (adding the host player itself)
+					return;
+
+				// Check if the session of the game ID (from the internet session server) exists.
+				// if so, update it as a local session and swap the internet-based address to local.
+				for (Common::Array<Session>::iterator i = _sessions.begin(); i != _sessions.end(); i++) {
+					if (i->id == sessionId && !i->local) {
+						i->local = true;
+						i->host = host;
+						i->port = port;
+						i->timestamp = g_system->getMillis();
+						i->players = players;
+						return;
+					}
+				}
 				// Check if we already know about this session:
-				for (Common::Array<_localSession>::iterator i = _localSessions.begin(); i != _localSessions.end(); i++) {
+				for (Common::Array<Session>::iterator i = _sessions.begin(); i != _sessions.end(); i++) {
 					if (i->host == host && i->port == port) {
 						// Yes we do, Update the timestamp and player count.
 						i->timestamp = g_system->getMillis();
@@ -708,13 +909,14 @@ void Net::handleBroadcastData(Common::String data, Common::String host, int port
 					}
 				}
 				// If we're here, assume that we had no clue about this session, store it.
-				_localSession session;
-				session.timestamp = g_system->getMillis();
+				Session session;
+				session.local = true;
 				session.host = host;
 				session.port = port;
 				session.name = name;
 				session.players = players;
-				_localSessions.push_back(session);
+				session.timestamp = g_system->getMillis();
+				_sessions.push_back(session);
 			}
 		}
 	}
@@ -762,6 +964,12 @@ bool Net::remoteReceiveData(uint32 tickCount) {
 
 			Common::String data = _sessionHost->getPacketData();
 			debug(1, "%s", data.c_str());
+
+			if (peerIndex == _sessionServerPeer) {
+				handleSessionServerData(data);
+				return true;
+			}
+
 			Common::JSONValue *json = Common::JSON::parse(data.c_str());
 			if (!json) {
 				// Just about anything could come from the broadcast address, so do not warn.
@@ -788,6 +996,13 @@ bool Net::remoteReceiveData(uint32 tickCount) {
 						}
 						_userIdToName[++_userIdCounter] = name;
 						_numUsers++;
+						if (_sessionId && _sessionServerPeer > -1) {
+							// Update player count to session server
+							Common::String updatePlayers = Common::String::format(
+								"{\"cmd\":\"update_players\",\"game\":\"moonbase\",\"version\":\"%s\",\"players\":%d}",
+								_gameVersion.c_str(), getTotalPlayers());
+							_sessionHost->send(updatePlayers.c_str(), _sessionServerPeer);
+						}
 						
 						Common::String address = Common::String::format("%s:%d", host.c_str(), port);
 						_userIdToAddress[_userIdCounter] = address;
@@ -832,6 +1047,9 @@ void Net::doNetworkOnceAFrame(int msecs) {
 		return;
 
 	remoteReceiveData(msecs);
+
+	if (_sessionServerHost)
+		serviceSessionServer();
 
 	if (_broadcastSocket)
 		serviceBroadcast();
@@ -991,7 +1209,7 @@ void Net::handleGameDataHost(Common::JSONValue *json, int peerIndex) {
 				handleGameData(json, peerIndex);
 			Common::String str = Common::JSON::stringify(json);
 			for (int i = 0; i < _numUsers; i++) {
-				if (i != peerIndex)
+				if (i != peerIndex && i != _sessionServerPeer)
 					_sessionHost->send(str.c_str(), i, 0, reliable);
 			}
 		}
