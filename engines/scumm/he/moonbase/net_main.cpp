@@ -294,9 +294,11 @@ int Net::joinSession(int sessionIndex) {
 	}
 
 	// Disconnect the session server to free up and use the same port we've connected previously.
-	_sessionServerHost->disconnectPeer(0);
-	delete _sessionServerHost;
-	_sessionServerHost = nullptr;
+	if (_sessionServerHost) {
+		_sessionServerHost->disconnectPeer(0);
+		delete _sessionServerHost;
+		_sessionServerHost = nullptr;
+	}
 
 	bool success = connectToSession(session.host, session.port);
 	if (!success) {
