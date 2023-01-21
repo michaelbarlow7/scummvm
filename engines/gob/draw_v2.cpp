@@ -144,9 +144,6 @@ void Draw_v2::animateCursor(int16 cursor) {
 		} else if (_cursorHotspotX != -1) {
 			hotspotX = _cursorHotspotX;
 			hotspotY = _cursorHotspotY;
-		} else if (_cursorHotspotsX != nullptr) {
-			hotspotX = _cursorHotspotsX[_cursorIndex];
-			hotspotY = _cursorHotspotsY[_cursorIndex];
 		}
 
 		newX = _vm->_global->_inter_mouseX - hotspotX;
@@ -158,19 +155,9 @@ void Draw_v2::animateCursor(int16 cursor) {
 				(cursorIndex + 1) * _cursorWidth - 1,
 				_cursorHeight - 1, 0, 0);
 
-		uint32 keyColor = 0;
-		if (_doCursorPalettes && _cursorKeyColors && _doCursorPalettes[cursorIndex])
-			keyColor = _cursorKeyColors[cursorIndex];
-
 		CursorMan.replaceCursor(_scummvmCursor->getData(),
-				_cursorWidth, _cursorHeight, hotspotX, hotspotY, keyColor, false, &_vm->getPixelFormat());
-
-		if (_doCursorPalettes && _doCursorPalettes[cursorIndex]) {
-			CursorMan.replaceCursorPalette(_cursorPalettes + (cursorIndex * 256 * 3),
-					_cursorPaletteStarts[cursorIndex], _cursorPaletteCounts[cursorIndex]);
-			CursorMan.disableCursorPalette(false);
-		} else
-			CursorMan.disableCursorPalette(true);
+				_cursorWidth, _cursorHeight, hotspotX, hotspotY, 0, false, &_vm->getPixelFormat());
+		CursorMan.disableCursorPalette(true);
 
 		if (_frontSurface != _backSurface) {
 			if (!_noInvalidated) {
@@ -300,6 +287,11 @@ void Draw_v2::printTotText(int16 id) {
 
 	_backColor = *ptr++;
 	_transparency = 1;
+
+	if ((_vm->getGameType() == kGameTypeAdibou2 ||
+		 _vm->getGameType() == kGameTypeAdi4) &&
+		_backColor == 16)
+		_backColor = -1;
 
 	spriteOperation(DRAW_CLEARRECT);
 
@@ -573,13 +565,13 @@ void Draw_v2::printTotText(int16 id) {
 			cmd = ptrEnd[17] & 0x7F;
 			if (cmd == 0) {
 				val = READ_LE_UINT16(ptrEnd + 18) * 4;
-				sprintf(buf, "%d", (int32)VAR_OFFSET(val));
+				Common::sprintf_s(buf, "%d", (int32)VAR_OFFSET(val));
 			} else if (cmd == 1) {
 				val = READ_LE_UINT16(ptrEnd + 18) * 4;
 				Common::strlcpy(buf, GET_VARO_STR(val), 20);
 			} else {
 				val = READ_LE_UINT16(ptrEnd + 18) * 4;
-				sprintf(buf, "%d", (int32)VAR_OFFSET(val));
+				Common::sprintf_s(buf, "%d", (int32)VAR_OFFSET(val));
 				if (buf[0] == '-') {
 					while (strlen(buf) - 1 < (uint32)ptrEnd[17]) {
 						_vm->_util->insertStr("0", buf, 1);
@@ -748,7 +740,7 @@ void Draw_v2::spriteOperation(int16 operation) {
 				_spriteLeft, spriteTop,
 				_spriteLeft + _spriteRight - 1,
 				_spriteTop + _spriteBottom - 1,
-				_destSpriteX, _destSpriteY, (_transparency == 0) ? -1 : 0);
+				_destSpriteX, _destSpriteY, (_transparency == 0) ? -1 : 0, _transparency & 0x80);
 
 		dirtiedRect(_destSurface, _destSpriteX, _destSpriteY,
 				_destSpriteX + _spriteRight - 1, _destSpriteY + _spriteBottom - 1);
@@ -919,6 +911,7 @@ void Draw_v2::spriteOperation(int16 operation) {
 		break;
 
 	default:
+		warning("unkown operation %d in Draw_v2::spriteOperation", operation);
 		break;
 	}
 

@@ -28,7 +28,7 @@
 #include "common/textconsole.h"
 #include "common/translation.h"
 #ifdef ENABLE_SCI32
-#include "common/installshield_cab.h"
+#include "common/compression/installshield_cab.h"
 #include "common/memstream.h"
 #endif
 
@@ -1017,7 +1017,7 @@ void ResourceManager::init() {
 	_currentDiscNo = 1;
 #endif
 	if (g_sci) {
-		_patcher = new ResourcePatcher(g_sci->getGameId(), g_sci->getLanguage());
+		_patcher = new ResourcePatcher(g_sci->getGameId(), g_sci->isCD(), g_sci->getPlatform(), g_sci->getLanguage());
 		addSource(_patcher);
 	} else {
 		_patcher = nullptr;
@@ -3028,20 +3028,12 @@ reg_t ResourceManager::findGameObject(const bool addSci11ScriptOffset, const boo
 	SciSpan<const byte>::const_iterator offsetPtr;
 
 	if (getSciVersion() <= SCI_VERSION_1_LATE) {
-		SciSpan<const byte> buf = (getSciVersion() == SCI_VERSION_0_EARLY) ? script->subspan(2) : *script;
+		offsetPtr = findSci0ExportsBlock(*script);
+		if (offsetPtr == script->cend())
+			error("Unable to find exports block from script 0");
+		offsetPtr += 4 + 2;
 
-		// Check if the first block is the exports block (in most cases, it is)
-		bool exportsIsFirst = buf.getUint16LEAt(4) == 7;
-		if (exportsIsFirst) {
-			offsetPtr = buf.subspan(4 + 2).cbegin();
-		} else {
-			offsetPtr = findSci0ExportsBlock(*script);
-			if (offsetPtr == buf.cend())
-				error("Unable to find exports block from script 0");
-			offsetPtr += 4 + 2;
-		}
-
-		int16 offset = !isSci11Mac() ? offsetPtr.getUint16LE() : offsetPtr.getUint16BE();
+		uint16 offset = !isSci11Mac() ? offsetPtr.getUint16LE() : offsetPtr.getUint16BE();
 		return make_reg(1, offset);
 	} else if (getSciVersion() >= SCI_VERSION_1_1 && getSciVersion() <= SCI_VERSION_2_1_LATE) {
 		offsetPtr = script->cbegin() + 4 + 2 + 2;
@@ -3120,6 +3112,28 @@ Common::String ResourceManager::findSierraGameId(const bool isBE) {
 	}
 
 	return heap->getStringAt(offset);
+}
+
+// Mac executables are currently used for icon bars and native fonts.
+// Eventually they should be used for native menus and possibly even splash screens.
+// For example, LSL6 can't function without native menus. (bug #11356)
+// Executables that we currently don't use are commented out.
+Common::String ResourceManager::getMacExecutableName() const {
+	switch (g_sci->getGameId()) {
+	case GID_CASTLEBRAIN: return "Castle of Dr. Brain"; // fonts, splash screen
+	case GID_FREDDYPHARKAS: return "Freddy Pharkas"; // fonts, icon bar, menu, splash screen
+	//case GID_HOYLE4: return "Hoyle"; // menu, splash screen
+	//case GID_KQ5: return "King's Quest V"; // fonts (not supported yet), splash screen
+	case GID_KQ6: return "King's Quest VI"; // fonts, icon bar, menu, splash screen
+	case GID_LSL1: return "Leisure Suit Larry 1"; // fonts, splash screen
+	case GID_LSL5: return "Leisure Suit Larry 5"; // fonts, splash screen
+	//case GID_LSL6: return "Leisure Suit Larry 6"; // menu, splash screen
+	//case GID_QFG1VGA: return "Quest for Glory"; // menu, splash screen
+	case GID_SQ1: return "Space Quest 1"; // fonts, splash screen
+	//case GID_SQ3: return "SQ3"; // menu, splash screen
+	//case GID_SQ4: return "Space Quest IV"; // splash screen
+	default: return "";
+	}
 }
 
 bool ResourceManager::isKoreanMessageMap(ResourceSource *source) {

@@ -69,7 +69,7 @@ void init_font_renderer();
 void shutdown_font_renderer();
 void adjust_y_coordinate_for_text(int *ypos, size_t fontnum);
 IAGSFontRenderer *font_replace_renderer(size_t fontNumber, IAGSFontRenderer *renderer);
-IAGSFontRenderer2* font_replace_renderer(size_t fontNumber, IAGSFontRenderer2 *renderer);
+IAGSFontRenderer *font_replace_renderer(size_t fontNumber, IAGSFontRenderer2 *renderer);
  void font_recalc_metrics(size_t fontNumber);
 bool font_first_renderer_loaded();
 bool is_font_loaded(size_t fontNumber);
@@ -98,7 +98,7 @@ int get_text_width_outlined(const char *text, size_t font_number);
 int get_font_height(size_t fontNumber);
 // Get the maximal height of the given font, with corresponding outlining
 int get_font_height_outlined(size_t fontNumber);
-// Get font's surface height: this always returns the height enough to accomodate
+// Get font's surface height: this always returns the height enough to accommodate
 // font letters on a bitmap or a texture; the distinction is needed for compatibility reasons
 int get_font_surface_height(size_t fontNumber);
 // Get font's line spacing
@@ -112,7 +112,7 @@ int  get_font_outline_thickness(size_t font_number);
 // Gets the total maximal height of the given number of lines printed with the given font;
 // note that this uses formal font height, for compatibility purposes
 int get_text_lines_height(size_t fontNumber, size_t numlines);
-// Gets the height of a graphic surface enough to accomodate this number of text lines;
+// Gets the height of a graphic surface enough to accommodate this number of text lines;
 // note this accounts for the real pixel font height
 int get_text_lines_surf_height(size_t fontNumber, size_t numlines);
 // Set font's outline type

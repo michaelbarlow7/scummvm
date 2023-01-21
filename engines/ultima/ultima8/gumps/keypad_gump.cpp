@@ -19,6 +19,8 @@
  *
  */
 
+#include "common/events.h"
+
 #include "ultima/ultima8/audio/audio_process.h"
 #include "ultima/ultima8/gumps/keypad_gump.h"
 #include "ultima/ultima8/games/game_data.h"
@@ -47,8 +49,7 @@ static const uint16 SFXNO_DEL = 0x3a;
 KeypadGump::KeypadGump(int targetValue, uint16 ucnotifypid): ModalGump(0, 0, 5, 5),
 		_value(0), _targetValue(targetValue), _ucNotifyPid(ucnotifypid) {
 	Mouse *mouse = Mouse::get_instance();
-	mouse->pushMouseCursor();
-	mouse->setMouseCursor(Mouse::MOUSE_HAND);
+	mouse->pushMouseCursor(Mouse::MOUSE_HAND);
 	for (int i = 0; i < 12; i++) {
 		_buttons[i] = 0;
 	}

@@ -68,7 +68,8 @@ void FireballProcess::run() {
 		return;
 	}
 
-	if (_age > 300 && (getRandom() % 20 == 0)) {
+	Common::RandomSource &rs = Ultima8Engine::get_instance()->getRandomSource();
+	if (_age > 300 && rs.getRandomNumber(19) == 0) {
 		// chance of 5% to disappear every frame after 10 seconds
 		terminate();
 		return;
@@ -76,7 +77,7 @@ void FireballProcess::run() {
 
 	// * accelerate a bit towards _target
 	// * try to move
-	// * if succesful:
+	// * if successful:
 	//   * move
 	//   * shift _tail, enlarging if smaller than 3 flames
 	// * if failed
@@ -135,7 +136,7 @@ void FireballProcess::run() {
 		Actor *hit = getActor(hititem);
 		if (hit) {
 			// hit an actor: deal damage and explode
-			hit->receiveHit(0, Direction_Invert(targetdir), 5 + (getRandom() % 5),
+			hit->receiveHit(0, Direction_Invert(targetdir), rs.getRandomNumberRng(5, 9),
 			                WeaponInfo::DMG_FIRE);
 			terminate();
 			return;
@@ -177,11 +178,11 @@ uint32 FireballProcess::I_TonysBalls(const uint8 *args,
 	Item *ball = ItemFactory::createItem(260, 4, 0, Item::FLG_FAST_ONLY,
 	                                     0, 0, 0, true);
 	if (!ball) {
-		perr << "I_TonysBalls failed to create item (260, 4)." << Std::endl;
+		warning("I_TonysBalls failed to create item (260, 4).");
 		return 0;
 	}
 	if (!ball->canExistAt(x, y, z)) {
-		perr << "I_TonysBalls: failed to create fireball." << Std::endl;
+		warning("I_TonysBalls: failed to create fireball.");
 		ball->destroy();
 		return 0;
 	}

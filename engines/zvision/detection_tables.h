@@ -36,77 +36,6 @@ static const char *directoryGlobs[] = {
 	0
 };
 
-#define GAMEOPTION_ORIGINAL_SAVELOAD          GUIO_GAMEOPTIONS1
-#define GAMEOPTION_DOUBLE_FPS                 GUIO_GAMEOPTIONS2
-#define GAMEOPTION_ENABLE_VENUS               GUIO_GAMEOPTIONS3
-#define GAMEOPTION_DISABLE_ANIM_WHILE_TURNING GUIO_GAMEOPTIONS4
-#define GAMEOPTION_USE_HIRES_MPEG_MOVIES      GUIO_GAMEOPTIONS5
-
-static const ADExtraGuiOptionsMap optionsList[] = {
-
-	{
-		GAMEOPTION_ORIGINAL_SAVELOAD,
-		{
-			_s("Use original save/load screens"),
-			_s("Use the original save/load screens instead of the ScummVM ones"),
-			"originalsaveload",
-			false,
-			0,
-			0
-		}
-	},
-
-	{
-		GAMEOPTION_DOUBLE_FPS,
-		{
-			_s("Double FPS"),
-			_s("Increase framerate from 30 to 60 FPS"),
-			"doublefps",
-			false,
-			0,
-			0
-		}
-	},
-
-	{
-		GAMEOPTION_ENABLE_VENUS,
-		{
-			_s("Enable Venus"),
-			_s("Enable the Venus help system"),
-			"venusenabled",
-			true,
-			0,
-			0
-		}
-	},
-
-	{
-		GAMEOPTION_DISABLE_ANIM_WHILE_TURNING,
-		{
-			_s("Disable animation while turning"),
-			_s("Disable animation while turning in panorama mode"),
-			"noanimwhileturning",
-			false,
-			0,
-			0
-		}
-	},
-
-	{
-		GAMEOPTION_USE_HIRES_MPEG_MOVIES,
-		{
-			_s("Use high resolution MPEG video"),
-			_s("Use MPEG video from the DVD version instead of lower resolution AVI"),
-			"mpegmovies",
-			true,
-			0,
-			0
-		}
-	},
-
-	AD_EXTRA_GUI_OPTIONS_TERMINATOR
-};
-
 static const ZVisionGameDescription gameDescriptions[] = {
 
 	{
@@ -193,34 +122,12 @@ static const ZVisionGameDescription gameDescriptions[] = {
 	{
 		// Zork Nemesis English Mac version
 		// Bugreport #11755
-		// These are proper checksums, but it is not working with AD so far
-		// (see comment at the start of getFileProperties()
 		{
 			"znemesis",
 			_s("Missing game code"), // Reason for being unsupported
 			{
-				{ "CSCR.ZFS", 0, "ce26cbb17bfbaa774742b3187262a7c0", 2597635 },
-				{ "ASCR.ZFS", 0, "5ee98db1bf73983eb8148da231342085", 929931 },
-				AD_LISTEND
-			},
-			Common::EN_ANY,
-			Common::kPlatformMacintosh,
-			ADGF_UNSUPPORTED | ADGF_MACRESFORK,
-			GUIO4(GAMEOPTION_ORIGINAL_SAVELOAD, GAMEOPTION_DOUBLE_FPS, GAMEOPTION_ENABLE_VENUS, GAMEOPTION_DISABLE_ANIM_WHILE_TURNING)
-		},
-		GID_NEMESIS
-	},
-
-	{
-		// Zork Nemesis English Mac version
-		// These are improper checksums for MacBinary files
-		// Added to avoid further bugreports.
-		{
-			"znemesis",
-			_s("Missing game code"), // Reason for being unsupported
-			{
-				{ "CSCR.ZFS", 0, "afcf3b38c210db13988fe7b22d5b2288", 2597888 },
-				{ "ASCR.ZFS", 0, "75e07b46ef60967c9ea66a19e4916b0f", 930176 },
+				{ "CSCR.ZFS", 0, "d:ce26cbb17bfbaa774742b3187262a7c0", 2597635 },
+				{ "ASCR.ZFS", 0, "d:5ee98db1bf73983eb8148da231342085", 929931 },
 				AD_LISTEND
 			},
 			Common::EN_ANY,

@@ -60,30 +60,13 @@ void DesktopGump::PaintChildren(RenderSurface *surf, int32 lerp_factor, bool sca
 			// Background is partially transparent
 			if (_fadedModal && dynamic_cast<ModalGump *>(g) &&
 			        !dynamic_cast<TargetGump *>(g) && !g->IsHidden())
-				surf->FillBlended(0x7F000000, 0, 0, _dims.width(), _dims.height());
+				surf->FillBlended(0x7F000000, _dims);
 
 			g->Paint(surf, lerp_factor, scaled);
 		}
 
 		++it;
 	}
-}
-
-bool DesktopGump::StartDraggingChild(Gump *gump, int32 mx, int32 my) {
-	gump->ParentToGump(mx, my);
-	Mouse::get_instance()->setDraggingOffset(mx, my);
-	MoveChildToFront(gump);
-	return true;
-}
-
-void DesktopGump::DraggingChild(Gump *gump, int mx, int my) {
-	int32 dx, dy;
-	Mouse::get_instance()->getDraggingOffset(dx, dy);
-	gump->Move(mx - dx, my - dy);
-}
-
-void DesktopGump::StopDraggingChild(Gump *gump) {
-
 }
 
 void DesktopGump::RenderSurfaceChanged(RenderSurface *surf) {

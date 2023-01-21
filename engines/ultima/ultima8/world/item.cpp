@@ -19,6 +19,7 @@
  *
  */
 
+#include "ultima/ultima.h"
 #include "ultima/ultima8/ultima8.h"
 #include "ultima/ultima8/usecode/usecode.h"
 #include "ultima/ultima8/games/game_data.h"
@@ -84,38 +85,35 @@ Item::Item()
 Item::~Item() {
 }
 
-void Item::dumpInfo() const {
-	pout << "Item " << getObjId() << " (class "
-	     << GetClassType()._className << ", shape "
-		 << getShape();
+Common::String Item::dumpInfo() const {
+	Common::String info = Common::String::format("Item %u (class %s, shape %u)", getObjId(), GetClassType()._className, getShape());
 
 	const char *ucname = GameData::get_instance()->getMainUsecode()->get_class_name(_shape);
 	if (ucname != nullptr) {
-		pout << " (uc:" << ucname << ")";
+		info += Common::String::format(" (uc: %s)", ucname);
 	}
 
-	pout << ", " << getFrame() << ", (";
+	info += Common::String::format(", %u, (", getFrame());
 
 	if (_parent) {
 		int32 gx, gy;
 		getGumpLocation(gx, gy);
-		pout << gx << "," << gy;
+		info += Common::String::format("%d, %d", gx, gy);
 	} else {
-		pout << _x << "," << _y << "," << _z;
+		info += Common::String::format("%d, %d, %d", _x, _y, _z);
 	}
 
-	pout << ") q:" << getQuality()
-	     << ", m:" << getMapNum() << ", n:" << getNpcNum()
-	     << ", f:0x" << ConsoleStream::hex << getFlags() << ", ef:0x"
-		 << getExtFlags();
+	info += Common::String::format(") q: %u, m: %u, n: %u, f: 0x%x, ef: 0x%x",
+		getQuality(), getMapNum() , getNpcNum(), getFlags(), getExtFlags());
 
-	const ShapeInfo *info = getShapeInfo();
-	if (info) {
-		pout << " shapeinfo f:" << info->_flags << ", fam:"
-			 << info->_family << ", et:" << info->_equipType;
+	const ShapeInfo *si = getShapeInfo();
+	if (si) {
+		info += Common::String::format(" shapeinfo f: %x, fam: %x, et: %x",
+			si->_flags, si->_family, si->_equipType);
 	}
 
-	pout << ")" << ConsoleStream::dec << Std::endl;
+	info += ")";
+	return info;
 }
 
 Container *Item::getParentAsContainer() const {
@@ -126,7 +124,7 @@ Container *Item::getParentAsContainer() const {
 	Container *p = getContainer(_parent);
 
 	if (!p) {
-		perr << "Item " << getObjId() << " _parent (" << _parent << ") is an invalid Container ObjID" << Std::endl;
+		warning("Item %u _parent (%u) is an invalid Container ObjID", getObjId(), _parent);
 		CANT_HAPPEN();
 	}
 
@@ -161,7 +159,7 @@ void Item::move(int32 X, int32 Y, int32 Z) {
 	int mapChunkSize = map->getChunkSize();
 
 	if (getObjId() == 1 && Z < 0) {
-		perr.Print("Warning: moving avatar below Z=0. (%d,%d,%d)\n", X, Y, Z);
+		warning("Moving avatar below Z=0. (%d,%d,%d)", X, Y, Z);
 	}
 
 	// TODO: In Crusader, if we are moving the avatar the game also checks whether
@@ -183,7 +181,7 @@ void Item::move(int32 X, int32 Y, int32 Z) {
 				if (p) p->removeItem(this);
 			}
 		} else
-			perr << "Item " << getObjId() << " FLG_CONTAINED or FLG_EQUIPPED set but item has no _parent" << Std::endl;
+			warning("Item %u FLG_CONTAINED or FLG_EQUIPPED set but item has no _parent", getObjId());
 
 		// Clear our owner.
 		_parent = 0;
@@ -258,7 +256,7 @@ void Item::move(int32 X, int32 Y, int32 Z) {
 bool Item::moveToContainer(Container *container, bool checkwghtvol) {
 	// Null container, report an error message
 	if (!container) {
-		perr << "NULL container passed to Item::moveToContainer" << Std::endl;
+		warning("NULL container passed to Item::moveToContainer");
 		return false;
 	}
 
@@ -289,7 +287,7 @@ bool Item::moveToContainer(Container *container, bool checkwghtvol) {
 				if (p) p->removeItem(this);
 			}
 		} else
-			perr << "Item " << getObjId() << " FLG_CONTAINED or FLG_EQUIPPED set but item has no _parent" << Std::endl;
+			warning("Item %u FLG_CONTAINED or FLG_EQUIPPED set but item has no _parent", getObjId());
 
 		// Clear our owner.
 		_parent = 0;
@@ -361,7 +359,7 @@ void Item::moveToEtherealVoid() {
 			Container *p = getParentAsContainer();
 			if (p) p->removeItem(this);
 		} else
-			perr << "Item " << getObjId() << " FLG_CONTAINED or FLG_EQUIPPED set but item has no _parent" << Std::endl;
+			warning("Item %u FLG_CONTAINED or FLG_EQUIPPED set but item has no _parent", getObjId());
 	} else if (_extendedFlags & EXT_INCURMAP) {
 		World::get_instance()->getCurrentMap()->removeItem(this);
 	}
@@ -379,7 +377,7 @@ void Item::returnFromEtherealVoid() {
 	if (_flags & (FLG_CONTAINED | FLG_EQUIPPED)) {
 		Container *p = getParentAsContainer();
 		if (!p) {
-			perr << "Item " << getObjId() << " FLG_CONTAINED or FLG_EQUIPPED set but item has no valid _parent" << Std::endl;
+			warning("Item %u FLG_CONTAINED or FLG_EQUIPPED set but item has no _parent", getObjId());
 			CANT_HAPPEN();
 		}
 		moveToContainer(p);
@@ -1016,12 +1014,12 @@ bool Item::checkLoopScript(const uint8 *script, uint32 scriptsize) const {
 		break;
 
 		default:
-			perr.Print("Unknown loopscript opcode %02X\n", script[i]);
+			warning("Unknown loopscript opcode %02X", script[i]);
 		}
 
 		i++;
 	}
-	perr.Print("Didn't encounter $ in loopscript\n");
+	warning("Didn't encounter $ in loopscript");
 	return false;
 }
 
@@ -1135,15 +1133,12 @@ int32 Item::collideMove(int32 dx, int32 dy, int32 dz, bool teleport, bool force,
 			if (hit < 0) hit = 0;
 
 			if (hit != 0x4000) {
-#if 0
-				pout << " Hit time: " << hit << Std::endl;
-				pout << "    Start: " << start[0] << ", " << start[1] << ", " << start[2] << Std::endl;
-				pout << "      End: " << end[0] << ", " << end[1] << ", " << end[2] << Std::endl;
-#endif
+				debugC(kDebugCollision, "Hit time: %d; Start: %d, %d, %d; End: %d, %d, %d",
+					hit, start[0], start[1], start[2], end[0], end[1], end[2]);
+
 				it->GetInterpolatedCoords(end, start, end);
-#if 0
-				pout << "Collision: " << end[0] << ", " << end[1] << ", " << end[2] << Std::endl;
-#endif
+
+				debugC(kDebugCollision, "Collision: %d, %d, %d", end[0], end[1], end[2]);
 			}
 		}
 
@@ -1214,6 +1209,7 @@ uint16 Item::fireWeapon(int32 x, int32 y, int32 z, Direction dir, int firetype, 
 	if (!firetypedat)
 		return 0;
 
+	Common::RandomSource &rs = Ultima8Engine::get_instance()->getRandomSource();
 	int damage = firetypedat->getRandomDamage();
 
 	const Item *blocker = nullptr;
@@ -1250,7 +1246,7 @@ uint16 Item::fireWeapon(int32 x, int32 y, int32 z, Direction dir, int firetype, 
 		spriteframe = 0x46;
 		break;
 	case 0xe:
-		spriteframe = 0x47 + getRandom() % 5;
+		spriteframe = 0x47 + rs.getRandomNumber(4);
 		break;
 	case 0xf:
 	case 0x12: // No Regret only
@@ -1542,7 +1538,7 @@ uint32 Item::callUsecodeEvent(uint32 event, const uint8 *args, int argsize) {
 	uint32 offset = u->get_class_event(class_id, event);
 	if (!offset) return 0; // event not found
 
-	debug(10, "Item: %d (shape %d) calling usecode event %d @ %04X:%04X",
+	debugC(kDebugObject, "Item: %d (shape %d) calling usecode event %d @ %04X:%04X",
 			_objId, _shape, event, class_id, offset);
 
 	return callUsecode(static_cast<uint16>(class_id),
@@ -1784,14 +1780,15 @@ void Item::animateItem() {
 	if (!info->_animType)
 		return;
 
+	Common::RandomSource &rs = Ultima8Engine::get_instance()->getRandomSource();
 	uint32 anim_data = info->_animData;
 	const Shape *shp = getShapeObject();
 
 	switch (info->_animType) {
 	case 2:
 		// Randomly change frame
-		if ((getRandom() & 1) && shp)
-			_frame = getRandom() % shp->frameCount();
+		if (rs.getRandomBit() && shp)
+			_frame = rs.getRandomNumber(shp->frameCount() - 1);
 		break;
 
 	case 1:
@@ -1799,7 +1796,7 @@ void Item::animateItem() {
 		// animdata 0 = always increment
 		// animdata 1 = 50 % chance of changing
 		// animdata 2+ = loop in frame blocks of size animdata
-		if (anim_data == 0 || (anim_data == 1 && (getRandom() & 1))) {
+		if (anim_data == 0 || (anim_data == 1 && rs.getRandomBit())) {
 			_frame++;
 			if (shp && _frame >= shp->frameCount())
 				_frame = 0;
@@ -1814,7 +1811,7 @@ void Item::animateItem() {
 	case 4:
 		// Randomly start animating, with chance of 1/(animdata + 2)
 		// once animating, go through all frames.
-		if (_frame || getRandom() % (anim_data + 2)) {
+		if (_frame || rs.getRandomNumber(anim_data + 1) == 0) {
 			_frame++;
 			if (shp && _frame >= shp->frameCount())
 				_frame = 0;
@@ -1830,7 +1827,7 @@ void Item::animateItem() {
 		// animdata 0 = stick on frame 0, else loop from 1 to count
 		// animdata 1 = same as 0, but with 50% chance of change
 		// animdata 2+ = same, but loop in frame blocks of size animdata
-		if (anim_data == 0 || (anim_data == 1 && (getRandom() & 1))) {
+		if (anim_data == 0 || (anim_data == 1 && rs.getRandomBit())) {
 			if (!_frame)
 				break;
 			_frame++;
@@ -1847,7 +1844,7 @@ void Item::animateItem() {
 		break;
 
 	default:
-		pout << "type " << info->_animType << " data " << anim_data << Std::endl;
+		debugC(kDebugObject, "type %u data %u", info->_animType, anim_data);
 		break;
 	}
 }
@@ -1930,7 +1927,7 @@ uint32 Item::enterFastArea() {
 // Called when an item is leaving the fast area
 void Item::leaveFastArea() {
 	if (_objId == 1) {
-		debug(6, "avatar leaving fast area");
+		debugC(kDebugActor, "Main actor leaving fast area");
 	}
 
 	// Call usecode
@@ -2025,7 +2022,7 @@ void Item::clearGump() {
 }
 
 int32 Item::ascend(int delta) {
-//	pout << "Ascend: _objId=" << getObjId() << ", delta=" << delta << Std::endl;
+	debugC(kDebugObject, "Ascend: _objId=%u, delta=%d", getObjId(), delta);
 
 	if (delta == 0) return 0x4000;
 
@@ -2054,7 +2051,7 @@ int32 Item::ascend(int delta) {
 	int dist = collideMove(xv, yv, zv + delta, false, false);
 	delta = (delta * dist) / 0x4000;
 
-//	pout << "Ascend: dist=" << dist << Std::endl;
+	debugC(kDebugObject, "Ascend: dist=%d", dist);
 
 	// move other items
 	for (uint32 i = 0; i < uclist.getSize(); i++) {
@@ -2155,6 +2152,7 @@ void Item::hurl(int xs, int ys, int zs, int grav) {
 
 
 void Item::explode(int explosion_type, bool destroy_item, bool cause_damage) {
+	Common::RandomSource &rs = Ultima8Engine::get_instance()->getRandomSource();
 	Process *p;
 	int damage_divisor = 1;
 
@@ -2171,7 +2169,7 @@ void Item::explode(int explosion_type, bool destroy_item, bool cause_damage) {
 		int32 cx, cy, cz;
 		getCentre(cx, cy, cz);
 		static const int expshapes[] = {0x31C, 0x31F, 0x326, 0x320, 0x321, 0x324, 0x323, 0x325};
-		int rnd = getRandom();
+		uint rnd = rs.getRandomNumber(UINT_MAX);
 		int spriteno;
 		// NOTE: The game does some weird 32-bit stuff to decide what
 		// shapenum to use.  Just simplified to a random.
@@ -2199,10 +2197,10 @@ void Item::explode(int explosion_type, bool destroy_item, bool cause_damage) {
 	if (audioproc) {
 		int sfx;
 		if (GAME_IS_CRUSADER) {
-			sfx = (getRandom() % 2) ? 28 : 108;
+			sfx = rs.getRandomBit() ? 28 : 108;
 			audioproc->stopSFX(-1, _objId);
 		} else {
-			sfx = (getRandom() % 2) ? 31 : 158;
+			sfx = rs.getRandomBit() ? 31 : 158;
 		}
 		audioproc->playSFX(sfx, 0x60, 0, 0);
 	}
@@ -2232,7 +2230,7 @@ void Item::explode(int explosion_type, bool destroy_item, bool cause_damage) {
 
 			item->getLocation(xv, yv, zv);
 			Direction dir = Direction_GetWorldDir(xv - xv, yv - yv, dirmode_8dirs); //!! CHECKME
-			item->receiveHit(0, dir, 6 + (getRandom() % 6),
+			item->receiveHit(0, dir, rs.getRandomNumberRng(6, 11),
 							 WeaponInfo::DMG_BLUNT | WeaponInfo::DMG_FIRE);
 		}
 	} else {
@@ -2332,8 +2330,9 @@ void Item::receiveHitCru(uint16 other, Direction dir, int damage, uint16 type) {
 	static const int hurl_x_factor[] = {  0, +1, +2, +2, +2, +2, +2, +1, 0, -1, -2, -2, -2, -2, -2, -1 };
 	static const int hurl_y_factor[] = { -2, -2, -2, -1,  0, +1, +2, +2, +2, +2, +2, +1, 0, -1, -2, -2 };
 
-	int xhurl = 10 + getRandom() % 15;
-	int yhurl = 10 + getRandom() % 15;
+	Common::RandomSource &rs = Ultima8Engine::get_instance()->getRandomSource();
+	int xhurl = rs.getRandomNumberRng(10, 24);
+	int yhurl = rs.getRandomNumberRng(10, 24);
 	hurl(-xhurl * hurl_x_factor[(int)dir], -yhurl * hurl_y_factor[(int)dir], 0, 2); //!! constants
 }
 
@@ -2750,7 +2749,7 @@ uint32 Item::I_setShape(const uint8 *args, unsigned int /*argsize*/) {
 	if (!item) return 0;
 
 #if 0
-	debug(6, "Item::setShape: objid %04X shape (%d -> %d)",
+	debugC(kDebugObject, "Item::setShape: objid %04X shape (%d -> %d)",
 		  item->getObjId(), item->getShape(), shape);
 #endif
 
@@ -2953,9 +2952,9 @@ uint32 Item::I_getTypeFlag(const uint8 *args, unsigned int /*argsize*/) {
 	const ShapeInfo *info = item->getShapeInfo();
 
 	if (GAME_IS_U8 && typeflag >= 64)
-		perr << "Invalid TypeFlag greater than 63 requested (" << typeflag << ") by Usecode" << Std::endl;
+		warning("Invalid TypeFlag greater than 63 requested (%u) by Usecode", typeflag);
 	if (GAME_IS_CRUSADER && typeflag >= 72)
-		perr << "Invalid TypeFlag greater than 72 requested (" << typeflag << ") by Usecode" << Std::endl;
+		warning("Invalid TypeFlag greater than 72 requested (%u) by Usecode", typeflag);
 
 	if (info->getTypeFlag(typeflag))
 		return 1;
@@ -3151,8 +3150,7 @@ uint32 Item::I_legalCreateAtPoint(const uint8 *args, unsigned int /*argsize*/) {
 
 	Item *newitem = ItemFactory::createItem(shape, frame, 0, 0, 0, 0, 0, true);
 	if (!newitem) {
-		perr << "I_legalCreateAtPoint failed to create item (" << shape
-		     << "," << frame << ")." << Std::endl;
+		warning("I_legalCreateAtPoint failed to create item (%u, %u).", shape, frame);
 		return 0;
 	}
 	uint16 objID = newitem->getObjId();
@@ -3185,8 +3183,7 @@ uint32 Item::I_legalCreateAtCoords(const uint8 *args, unsigned int /*argsize*/) 
 	// if yes, create it
 	Item *newitem = ItemFactory::createItem(shape, frame, 0, 0, 0, 0, 0, true);
 	if (!newitem) {
-		perr << "I_legalCreateAtCoords failed to create item (" << shape
-		     << "," << frame << ")." << Std::endl;
+		warning("I_legalCreateAtCoords failed to create item (%u, %u).", shape, frame);
 		return 0;
 	}
 	uint16 objID = newitem->getObjId();
@@ -3217,8 +3214,7 @@ uint32 Item::I_legalCreateInCont(const uint8 *args, unsigned int /*argsize*/) {
 
 	Item *newitem = ItemFactory::createItem(shape, frame, 0, 0, 0, 0, 0, true);
 	if (!newitem) {
-		perr << "I_legalCreateInCont failed to create item (" << shape
-		     << "," << frame << ")." << Std::endl;
+		warning("I_legalCreateInCont failed to create item (%u, %u).", shape, frame);
 		return 0;
 	}
 
@@ -3232,8 +3228,7 @@ uint32 Item::I_legalCreateInCont(const uint8 *args, unsigned int /*argsize*/) {
 
 		return 1;
 	} else {
-		perr << "I_legalCreateInCont failed to add item to container ("
-		     << container->getObjId() << ")" << Std::endl;
+		warning("I_legalCreateInCont failed to add item to container (%u)", container->getObjId());
 		// failed to add; clean up
 		newitem->destroy();
 
@@ -3256,8 +3251,6 @@ uint32 Item::I_getFootpadData(const uint8 *args, unsigned int /*argsize*/) {
 	ARG_UC_PTR(yptr);
 	ARG_UC_PTR(zptr);
 	if (!item) return 0;
-
-	// TODO: Data is packed differently in Crusader - check that this still works.
 
 	uint8 buf[2];
 	int32 x, y, z;
@@ -3366,7 +3359,8 @@ uint32 Item::I_push(const uint8 *args, unsigned int /*argsize*/) {
 		return 0;
 
 	#if 0
-		perr << "Pushing item to ethereal void: id: " << item->getObjId() << " shp: " << item->getShape() << "," << item->getFrame() << Std::endl;
+		debugC(kDebugObject, "Pushing item to ethereal void: id: %u shp: %u, %u",
+			item->getObjId(), item->getShape(), item->getFrame());
 	#endif
 
 	item->moveToEtherealVoid();
@@ -3381,14 +3375,13 @@ uint32 Item::I_create(const uint8 *args, unsigned int /*argsize*/) {
 
 	Item *newitem = ItemFactory::createItem(shape, frame, 0, 0, 0, 0, 0, true);
 	if (!newitem) {
-		perr << "I_create failed to create item (" << shape
-		     << "," << frame << ")." << Std::endl;
+		warning("I_create failed to create item (%u, %u).", shape, frame);
 		return 0;
 	}
 	uint16 objID = newitem->getObjId();
 
 #if 0
-	debug(6, "Item::create: objid %04X shape (%d, %d)",
+	debugC(kDebugObject, "Item::create: objid %04X shape (%d, %d)",
 		  objID, shape, frame);
 #endif
 
@@ -3420,7 +3413,7 @@ uint32 Item::I_pop(const uint8 */*args*/, unsigned int /*argsize*/) {
 	item->returnFromEtherealVoid();
 
 #if 0
-	perr << "Popping item to original location: " << item->getShape() << "," << item->getFrame() << Std::endl;
+	debugC(kDebugObject, "Popping item to original location: %u, %u", item->getShape(), item->getFrame());
 #endif
 
 	//! Anything else?
@@ -3458,7 +3451,8 @@ uint32 Item::I_popToCoords(const uint8 *args, unsigned int /*argsize*/) {
 	item->move(x, y, z);
 
 #if 0
-	perr << "Popping item into map: " << item->getShape() << "," << item->getFrame() << " at (" << x << "," << y << "," << z << ")" << Std::endl;
+	debugC(kDebugObject, "Popping item into map: %u, %u at (%d, %d, %d)",
+		item->getShape(), item->getFrame(), x, y, z);
 #endif
 
 	//! Anything else?
@@ -3490,15 +3484,15 @@ uint32 Item::I_popToContainer(const uint8 *args, unsigned int /*argsize*/) {
 		citem->getLocation(pt);
 		item->move(pt);
 	} else {
-		perr << "Trying to popToContainer to invalid container (" << id_citem << ")" << Std::endl;
-		item->dumpInfo();
+		warning("Trying to popToContainer to invalid container (%u)", id_citem);
+		warning("%s", item->dumpInfo().c_str());
 		// This object now has no home, destroy it - unless it doesn't think it's
 		// ethereal, in that case it is somehow there by mistake?
 		if (item->getFlags() & FLG_ETHEREAL) {
-			perr << "Destroying orphaned ethereal object (" << objId << ")" << Std::endl;
+			warning("Destroying orphaned ethereal object (%u)", objId);
 			item->destroy();
 		} else {
-			perr << "Leaving orphaned ethereal object (" << objId << ")" << Std::endl;
+			warning("Leaving orphaned ethereal object (%u)", objId);
 			w->etherealRemove(objId);
 		}
 	}
@@ -3533,15 +3527,15 @@ uint32 Item::I_popToEnd(const uint8 *args, unsigned int /*argsize*/) {
 		citem->getLocation(pt);
 		item->move(pt);
 	} else {
-		perr << "Trying to popToEnd to invalid container (" << id_citem << ")" << Std::endl;
-		item->dumpInfo();
+		warning("Trying to popToEnd to invalid container (%u)", id_citem);
+		warning("%s", item->dumpInfo().c_str());
 		// This object now has no home, destroy it - unless it doesn't think it's
 		// ethereal, in that case it is somehow there by mistake?
 		if (item->getFlags() & FLG_ETHEREAL) {
-			perr << "Destroying orphaned ethereal object (" << objId << ")" << Std::endl;
+			warning("Destroying orphaned ethereal object (%u)", objId);
 			item->destroy();
 		} else {
-			perr << "Leaving orphaned ethereal object (" << objId << ")" << Std::endl;
+			warning("Leaving orphaned ethereal object (%u)", objId);
 			w->etherealRemove(objId);
 		}
 	}
@@ -3566,7 +3560,8 @@ uint32 Item::I_move(const uint8 *args, unsigned int /*argsize*/) {
 	World_FromUsecodeXY(x, y);
 
 	#if 0
-		perr << "Moving item: " << item->getShape() << "," << item->getFrame() << " to (" << x << "," << y << "," << z << ")" << Std::endl;
+		debugC(kDebugObject, "Moving item: %u, %u to (%d, %d, %d)",
+			item->getShape(), item->getFrame(), x, y, z);
 	#endif
 
 	item->move(x, y, z);
@@ -3808,7 +3803,7 @@ uint32 Item::I_getSliderInput(const uint8 *args, unsigned int /*argsize*/) {
 	UCProcess *current = dynamic_cast<UCProcess *>(Kernel::get_instance()->getRunningProcess());
 	assert(current);
 
-//	pout << "SliderGump: min=" << minval << ", max=" << maxval << ", step=" << step << Std::endl;
+//	debugC(kDebugObject, "SliderGump: min=%d, max=%d, step=%d", minval, maxval, step);
 
 	SliderGump *_gump = new SliderGump(100, 100, minval, maxval, minval, step);
 	_gump->InitGump(0); // modal _gump

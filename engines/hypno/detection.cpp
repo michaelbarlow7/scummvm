@@ -20,15 +20,9 @@
  */
 
 #include "base/plugins.h"
-#include "common/translation.h"
 #include "engines/advancedDetector.h"
 #include "hypno/hypno.h"
-
-#define GAMEOPTION_ORIGINAL_CHEATS   GUIO_GAMEOPTIONS1
-#define GAMEOPTION_INFINITE_HEALTH   GUIO_GAMEOPTIONS2
-#define GAMEOPTION_INFINITE_AMMO     GUIO_GAMEOPTIONS3
-#define GAMEOPTION_UNLOCK_ALL_LEVELS GUIO_GAMEOPTIONS4
-#define GAMEOPTION_RESTORED_CONTENT  GUIO_GAMEOPTIONS5
+#include "hypno/detection.h"
 
 static const DebugChannelDef debugFlagList[] = {
 	{Hypno::kHypnoDebugMedia, "media", "Media debug channel"},
@@ -159,6 +153,16 @@ static const ADGameDescription gameDescriptions[] = {
 		GUIO1(GUIO_NOMIDI)
 	},
 	{
+		"wetlands", // Might and Magic Trilogy CD (November 1995) - Chapters 31/52 demo
+		"M&MCD",
+		AD_ENTRY2s("wetlands.exe", "15a6b1b3819ef002438df340509b5373", 642231,
+				"missions.lib", "7e3e5b23ade5ef0df88e9d31f5d669e6", 10188),
+		Common::EN_USA,
+		Common::kPlatformDOS,
+		ADGF_DEMO,
+		GUIO1(GUIO_NOMIDI)
+	},
+	{
 		"wetlands", // Non Interactive: PC Review 49 (November 1995)
 		"NonInteractive",
 		AD_ENTRY2s("playsmks.exe", "edc5b0c0caf3d5b01d344cb555d9a085", 422607,
@@ -251,65 +255,6 @@ static const ADGameDescription gameDescriptions[] = {
 	AD_TABLE_END_MARKER
 };
 
-static const ADExtraGuiOptionsMap optionsList[] = {
-	{
-		GAMEOPTION_ORIGINAL_CHEATS,
-		{
-			_s("Enable original cheats"),
-			_s("Allow cheats using the C key."),
-			"cheats",
-			true,
-			0,
-			0
-		}
-	},
-	{
-		GAMEOPTION_INFINITE_HEALTH,
-		{
-			_s("Enable infinite health cheat"),
-			_s("Player health will never decrease (except for game over scenes)."),
-			"infiniteHealth",
-			false,
-			0,
-			0
-		}
-	},
-	{
-		GAMEOPTION_INFINITE_AMMO,
-		{
-			_s("Enable infinite ammo cheat"),
-			_s("Player ammo will never decrease."),
-			"infiniteAmmo",
-			false,
-			0,
-			0
-		}
-	},
-	{
-		GAMEOPTION_UNLOCK_ALL_LEVELS,
-		{
-			_s("Unlock all levels"),
-			_s("All levels will be available to play."),
-			"unlockAllLevels",
-			false,
-			0,
-			0
-		}
-	},
-	{
-		GAMEOPTION_RESTORED_CONTENT,
-		{
-			_s("Enable restored content"),
-			_s("Add additional content that is not enabled the original implementation."),
-			"restored",
-			true,
-			0,
-			0
-		}
-	},
-	AD_EXTRA_GUI_OPTIONS_TERMINATOR
-};
-
 } // End of namespace Hypno
 
 static const char *const directoryGlobs[] = {
@@ -328,7 +273,7 @@ static const char *const directoryGlobs[] = {
 
 class HypnoMetaEngineDetection : public AdvancedMetaEngineDetection {
 public:
-	HypnoMetaEngineDetection() : AdvancedMetaEngineDetection(Hypno::gameDescriptions, sizeof(ADGameDescription), Hypno::hypnoGames, Hypno::optionsList) {
+	HypnoMetaEngineDetection() : AdvancedMetaEngineDetection(Hypno::gameDescriptions, sizeof(ADGameDescription), Hypno::hypnoGames) {
 		_guiOptions = GUIO6(GUIO_NOMIDI, GAMEOPTION_ORIGINAL_CHEATS, GAMEOPTION_INFINITE_HEALTH, GAMEOPTION_INFINITE_AMMO, GAMEOPTION_UNLOCK_ALL_LEVELS, GAMEOPTION_RESTORED_CONTENT);
 		_maxScanDepth = 3;
 		_directoryGlobs = directoryGlobs;

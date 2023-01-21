@@ -347,7 +347,7 @@ Datum Lingo::findVarV4(int varType, const Datum &id) {
 	case 4: // arg
 	case 5: // local
 		{
-			Common::Array<CFrame *> &callstack = _vm->getCurrentWindow()->_callstack;
+			Common::Array<CFrame *> &callstack = _state->callstack;
 			if (callstack.empty()) {
 				warning("BUILDBOT: findVarV4: no call frame");
 				return res;
@@ -420,7 +420,7 @@ void LC::cb_localcall() {
 
 	Datum nargs = g_lingo->pop();
 	if ((nargs.type == ARGC) || (nargs.type == ARGCNORET)) {
-		Common::String name = g_lingo->_currentScriptContext->_functionNames[functionId];
+		Common::String name = g_lingo->_state->context->_functionNames[functionId];
 		if (debugChannelSet(3, kDebugLingoExec))
 			printWithArgList(name.c_str(), nargs.u.i, "localcall:");
 
@@ -587,12 +587,10 @@ void LC::cb_theassign() {
 	// cb_theassign is for setting script/factory-level properties
 	Common::String name = g_lingo->readString();
 	Datum value = g_lingo->pop();
-	if (g_lingo->_currentMe.type == OBJECT) {
-		if (g_lingo->_currentMe.u.obj->hasProp(name)) {
-			g_lingo->_currentMe.u.obj->setProp(name, value);
-		} else {
-			warning("cb_theassign: me object has no property '%s'", name.c_str());
-		}
+	if (g_lingo->_state->me.type == OBJECT) {
+		// Don't bother checking if the property is defined, leave that to the object.
+		// For D3-style anonymous objects/factories, you are allowed to define whatever properties you like.
+		g_lingo->_state->me.u.obj->setProp(name, value);
 	} else {
 		warning("cb_theassign: no me object");
 	}
@@ -616,9 +614,9 @@ void LC::cb_theassign2() {
 
 void LC::cb_thepush() {
 	Common::String name = g_lingo->readString();
-	if (g_lingo->_currentMe.type == OBJECT) {
-		if (g_lingo->_currentMe.u.obj->hasProp(name)) {
-			g_lingo->push(g_lingo->_currentMe.u.obj->getProp(name));
+	if (g_lingo->_state->me.type == OBJECT) {
+		if (g_lingo->_state->me.u.obj->hasProp(name)) {
+			g_lingo->push(g_lingo->_state->me.u.obj->getProp(name));
 			return;
 		}
 		warning("cb_thepush: me object has no property '%s'", name.c_str());
@@ -1075,12 +1073,17 @@ ScriptContext *LingoCompiler::compileLingoV4(Common::SeekableReadStreamEndian &s
 		warning("Lscr properties store missing");
 		return nullptr;
 	}
-
-	debugC(5, kDebugLoading, "Lscr property list:");
 	stream.seek(propertiesOffset);
+	if (debugChannelSet(5, kDebugLoading)) {
+		debugC(5, kDebugLoading, "Lscr property list:");
+		stream.hexdump(propertiesCount * 2);
+	}
 	for (uint16 i = 0; i < propertiesCount; i++) {
 		int16 index = stream.readSint16();
-		if (0 <= index && index < (int16)archive->names.size()) {
+		if (index == -1) {
+			debugC(5, kDebugLoading, "[end of list]");
+			break;
+		} else if (0 <= index && index < (int16)archive->names.size()) {
 			const char *name = archive->names[index].c_str();
 			debugC(5, kDebugLoading, "%d: %s", i, name);
 			_assemblyContext->_properties[name] = Datum();
@@ -1095,17 +1098,20 @@ ScriptContext *LingoCompiler::compileLingoV4(Common::SeekableReadStreamEndian &s
 		return nullptr;
 	}
 
-	debugC(5, kDebugLoading, "Lscr globals list:");
 	stream.seek(globalsOffset);
+	if (debugChannelSet(5, kDebugLoading)) {
+		debugC(5, kDebugLoading, "Lscr globals list:");
+		stream.hexdump(globalsCount * 2);
+	}
 	for (uint16 i = 0; i < globalsCount; i++) {
 		int16 index = stream.readSint16();
 		if (0 <= index && index < (int16)archive->names.size()) {
 			const char *name = archive->names[index].c_str();
-			debugC(5, kDebugLoading, "%d: %s", i, name);
 			if (!g_lingo->_globalvars.contains(name)) {
 				g_lingo->_globalvars[name] = Datum();
+				debugC(5, kDebugLoading, "%d: %s", i, name);
 			} else {
-				warning("Global %d (%s) already defined", i, name);
+				debugC(5, kDebugLoading, "%d: %s (already defined)", i, name);
 			}
 		} else {
 			warning("Global %d has unknown name id %d, skipping define", i, index);

@@ -140,7 +140,7 @@ public:
 
 #ifdef MTROPOLIS_DEBUG_ENABLE
 	const char *debugGetTypeName() const override { return "Color Table Modifier"; }
-	SupportStatus debugGetSupportStatus() const override { return kSupportStatusNone; }
+	SupportStatus debugGetSupportStatus() const override { return kSupportStatusDone; }
 #endif
 
 private:
@@ -200,7 +200,7 @@ private:
 	Event _saveWhen;
 	Event _restoreWhen;
 
-	DynamicValue _saveOrRestoreValue;
+	DynamicValueSource _saveOrRestoreValue;
 
 	Common::String _filePath;
 	Common::String _fileName;
@@ -235,10 +235,17 @@ class SetModifier : public Modifier {
 public:
 	bool load(ModifierLoaderContext &context, const Data::SetModifier &data);
 
+	bool respondsToEvent(const Event &evt) const override;
+	VThreadState consumeMessage(Runtime *runtime, const Common::SharedPtr<MessageProperties> &msg) override;
+
 	void disable(Runtime *runtime) override {}
+
+	void linkInternalReferences(ObjectLinkingScope *outerScope) override;
+	void visitInternalReferences(IStructuralReferenceVisitor *visitor) override;
 
 #ifdef MTROPOLIS_DEBUG_ENABLE
 	const char *debugGetTypeName() const override { return "Set Modifier"; }
+	SupportStatus debugGetSupportStatus() const override { return kSupportStatusDone; }
 #endif
 
 private:
@@ -246,8 +253,8 @@ private:
 	const char *getDefaultName() const override;
 
 	Event _executeWhen;
-	DynamicValue _source;
-	DynamicValue _target;
+	DynamicValueSource _source;
+	DynamicValueSource _target;
 };
 
 class AliasModifier : public Modifier {
@@ -346,12 +353,16 @@ private:
 class PathMotionModifier : public Modifier {
 public:
 	PathMotionModifier();
+	~PathMotionModifier();
 
 	bool load(ModifierLoaderContext &context, const Data::PathMotionModifier &data);
 
 	bool respondsToEvent(const Event &evt) const override;
 	VThreadState consumeMessage(Runtime *runtime, const Common::SharedPtr<MessageProperties> &msg) override;
 	void disable(Runtime *runtime) override;
+
+	void linkInternalReferences(ObjectLinkingScope *scope) override;
+	void visitInternalReferences(IStructuralReferenceVisitor *visitor) override;
 
 #ifdef MTROPOLIS_DEBUG_ENABLE
 	const char *debugGetTypeName() const override { return "Path Motion Modifier"; }
@@ -369,6 +380,74 @@ private:
 		MessengerSendSpec sendSpec;
 	};
 
+	struct ExecuteTaskData {
+		ExecuteTaskData() : runtime(nullptr) {}
+
+		Runtime *runtime;
+	};
+
+	struct TerminateTaskData {
+		TerminateTaskData() : runtime(nullptr) {}
+
+		Runtime *runtime;
+	};
+
+	struct ChangePointsTaskData {
+		ChangePointsTaskData() : runtime(nullptr), prevPoint(0), newPoint(0), isTerminal(false) {}
+
+		Runtime *runtime;
+		uint prevPoint;
+		uint newPoint;
+		bool isTerminal;
+	};
+
+	struct TriggerMessageTaskData {
+		TriggerMessageTaskData() : runtime(nullptr), pointIndex(0) {}
+
+		Runtime *runtime;
+		uint pointIndex;
+	};
+
+	struct SendMessageToParentTaskData {
+		SendMessageToParentTaskData() : runtime(nullptr), eventID(EventIDs::kNothing) {}
+
+		Runtime *runtime;
+		EventIDs::EventID eventID;
+	};
+
+	struct ChangeCelTaskData {
+		ChangeCelTaskData() : runtime(nullptr), pointIndex(0) {}
+
+		Runtime *runtime;
+		uint pointIndex;
+	};
+
+	struct ChangePositionTaskData {
+		ChangePositionTaskData() : runtime(nullptr) {}
+
+		Runtime *runtime;
+		Common::Point positionDelta;
+	};
+
+	struct AdvanceFrameTaskData {
+		AdvanceFrameTaskData() : runtime(nullptr), terminationTimeDUSec(0) {}
+
+		Runtime *runtime;
+		uint64 terminationTimeDUSec;
+	};
+
+	VThreadState executeTask(const ExecuteTaskData &taskData);
+	VThreadState terminateTask(const TerminateTaskData &taskData);
+	VThreadState changePointsTask(const ChangePointsTaskData &taskData);
+	VThreadState triggerMessageTask(const TriggerMessageTaskData &taskData);
+	VThreadState sendMessageToParentTask(const SendMessageToParentTaskData &taskData);
+	VThreadState changeCelTask(const ChangeCelTaskData &taskData);
+	VThreadState changePositionTask(const ChangePositionTaskData &taskData);
+	VThreadState advanceFrameTask(const AdvanceFrameTaskData &taskData);
+
+	void scheduleNextAdvance(Runtime *runtime, uint64 startingFromTimeDUSec);
+	void advance(Runtime *runtime);
+
 	Common::SharedPtr<Modifier> shallowClone() const override;
 	const char *getDefaultName() const override;
 
@@ -380,11 +459,58 @@ private:
 	bool _alternate;
 	bool _startAtBeginning;
 
-	uint32 _frameDurationTimes10Million;
+	uint64 _frameDurationDUSec;
 
 	Common::Array<PointDef> _points;
 
 	DynamicValue _incomingData;
+
+	Common::WeakPtr<RuntimeObject> _triggerSource;
+	Common::SharedPtr<ScheduledEvent> _scheduledEvent;
+	bool _isAlternatingDirection;
+	uint _currentPointIndex;
+	uint64 _lastPointTimeDUSec;
+};
+
+class SimpleMotionModifier : public Modifier {
+public:
+	SimpleMotionModifier();
+
+	bool load(ModifierLoaderContext &context, const Data::SimpleMotionModifier &data);
+
+	bool respondsToEvent(const Event &evt) const override;
+	VThreadState consumeMessage(Runtime *runtime, const Common::SharedPtr<MessageProperties> &msg) override;
+	void disable(Runtime *runtime) override;
+
+#ifdef MTROPOLIS_DEBUG_ENABLE
+	const char *debugGetTypeName() const override { return "Simple Motion Modifier"; }
+	SupportStatus debugGetSupportStatus() const override { return kSupportStatusNone; }
+#endif
+
+private:
+	enum MotionType {
+		kMotionTypeOutOfScene = 1,
+		kMotionTypeIntoScene = 2,
+		kMotionTypeRandomBounce = 3,
+	};
+
+	enum DirectionFlags {
+		kDirectionFlagDown = 1,
+		kDirectionFlagUp = 2,
+		kDirectionFlagRight = 4,
+		kDirectionFlagLeft = 8,
+	};
+
+	Common::SharedPtr<Modifier> shallowClone() const override;
+	const char *getDefaultName() const override;
+
+	Event _executeWhen;
+	Event _terminateWhen;
+
+	MotionType _motionType;
+	uint16 _directionFlags;
+	uint16 _steps;
+	uint32 _delayMSecTimes4800;
 };
 
 class DragMotionModifier : public Modifier {
@@ -436,8 +562,7 @@ private:
 	Event _enableWhen;
 	Event _disableWhen;
 
-	DynamicValue _vec;
-	Common::WeakPtr<Modifier> _vecVar;
+	DynamicValueSource _vec;
 
 	AngleMagVector _resolvedVector;
 	uint16 _subpixelX;
@@ -457,6 +582,7 @@ public:
 
 #ifdef MTROPOLIS_DEBUG_ENABLE
 	const char *debugGetTypeName() const override { return "Scene Transition Modifier"; }
+	SupportStatus debugGetSupportStatus() const override { return kSupportStatusDone; }
 #endif
 
 private:
@@ -568,6 +694,7 @@ private:
 		EvaluateAndSendTaskData() : runtime(nullptr) {}
 
 		Common::SharedPtr<MiniscriptThread> thread;
+		Common::WeakPtr<RuntimeObject> triggerSource;
 		Runtime *runtime;
 		DynamicValue incomingData;
 	};
@@ -619,6 +746,7 @@ private:
 	DynamicValue _incomingData;
 
 	Common::SharedPtr<ScheduledEvent> _scheduledEvent;
+	Common::WeakPtr<RuntimeObject> _triggerSource;
 };
 
 class BoundaryDetectionMessengerModifier : public Modifier, public IBoundaryDetector {
@@ -669,6 +797,7 @@ private:
 	Runtime *_runtime;
 	bool _isActive;
 	DynamicValue _incomingData;
+	Common::WeakPtr<RuntimeObject> _triggerSource;
 };
 
 class CollisionDetectionMessengerModifier : public Modifier, public ICollider {
@@ -694,6 +823,15 @@ private:
 	Common::SharedPtr<Modifier> shallowClone() const override;
 	const char *getDefaultName() const override;
 
+	struct EnableTaskData {
+	};
+
+	struct DisableTaskData {
+	};
+
+	VThreadState enableTask(const EnableTaskData &taskData);
+	VThreadState disableTask(const DisableTaskData &taskData);
+
 	void getCollisionProperties(Modifier *&modifier, bool &collideInFront, bool &collideBehind, bool &excludeParents) const override;
 	void triggerCollision(Runtime *runtime, Structural *collidingElement, bool wasInContact, bool isInContact, bool &outShouldStop) override;
 
@@ -718,6 +856,7 @@ private:
 	bool _isActive;
 
 	DynamicValue _incomingData;
+	Common::WeakPtr<RuntimeObject> _triggerSource;
 };
 
 class KeyboardMessengerModifier : public Modifier {
@@ -870,6 +1009,69 @@ private:
 	bool _includeBorders;
 };
 
+class ReturnModifier : public Modifier {
+public:
+	ReturnModifier();
+
+	bool load(ModifierLoaderContext &context, const Data::ReturnModifier &data);
+
+	bool respondsToEvent(const Event &evt) const override;
+	VThreadState consumeMessage(Runtime *runtime, const Common::SharedPtr<MessageProperties> &msg) override;
+	void disable(Runtime *runtime) override;
+
+#ifdef MTROPOLIS_DEBUG_ENABLE
+	const char *debugGetTypeName() const override { return "Return Modifier"; }
+	SupportStatus debugGetSupportStatus() const override { return kSupportStatusNone; }
+#endif
+
+private:
+	Common::SharedPtr<Modifier> shallowClone() const override;
+	const char *getDefaultName() const override;
+
+	Event _executeWhen;
+};
+
+class CursorModifierV1 : public Modifier {
+public:
+	CursorModifierV1();
+
+	bool load(ModifierLoaderContext &context, const Data::CursorModifierV1 &data);
+
+	bool respondsToEvent(const Event &evt) const override;
+	VThreadState consumeMessage(Runtime *runtime, const Common::SharedPtr<MessageProperties> &msg) override;
+	void disable(Runtime *runtime) override;
+
+#ifdef MTROPOLIS_DEBUG_ENABLE
+	const char *debugGetTypeName() const override { return "Cursor Modifier V1"; }
+	SupportStatus debugGetSupportStatus() const override { return kSupportStatusNone; }
+#endif
+
+private:
+	enum {
+		kCursor_Inactive,
+		kCursor_Interact,
+		kCursor_HandGrabBW,
+		kCursor_HandOpenBW,
+		kCursor_HandPointUp,
+		kCursor_HandPointRight,
+		kCursor_HandPointLeft,
+		kCursor_HandPointDown,
+		kCursor_HandGrabColor,
+		kCursor_HandOpenColor,
+		kCursor_Arrow,
+		kCursor_Pencil,
+		kCursor_Smiley,
+		kCursor_Wait,
+		kCursor_Hidden,
+	};
+
+	Common::SharedPtr<Modifier> shallowClone() const override;
+	const char *getDefaultName() const override;
+
+	Event _applyWhen;
+	uint32 _cursorIndex;
+};
+
 // Compound variable modifiers are not true variable modifiers.
 // They aren't treated as values by Miniscript and they aren't
 // treated as unique objects by aliases.  The only way that
@@ -881,7 +1083,7 @@ public:
 
 	void disable(Runtime *runtime) override;
 
-	Common::SharedPtr<ModifierSaveLoad> getSaveLoad() override;
+	Common::SharedPtr<ModifierSaveLoad> getSaveLoad(Runtime *runtime) override;
 
 	IModifierContainer *getChildContainer() override;
 
@@ -895,7 +1097,7 @@ public:
 private:
 	class SaveLoad : public ModifierSaveLoad {
 	public:
-		explicit SaveLoad(CompoundVariableModifier *modifier);
+		SaveLoad(Runtime *runtime, CompoundVariableModifier *modifier);
 
 		void saveInternal(Common::WriteStream *stream) const override;
 		bool loadInternal(Common::ReadStream *stream, uint32 saveFileVersion) override;
@@ -926,7 +1128,7 @@ private:
 	MiniscriptInstructionOutcome writeRefAttribute(MiniscriptThread *thread, DynamicValueWriteProxy &writeProxy, const Common::String &attrib) override;
 	MiniscriptInstructionOutcome writeRefAttributeIndexed(MiniscriptThread *thread, DynamicValueWriteProxy &writeProxy, const Common::String &attrib, const DynamicValue &index) override;
 
-	Modifier *findChildByName(const Common::String &name) const;
+	Modifier *findChildByName(Runtime *runtime, const Common::String &name) const;
 
 	Common::Array<Common::SharedPtr<Modifier> > _children;
 };
@@ -937,10 +1139,8 @@ public:
 
 	bool load(ModifierLoaderContext &context, const Data::BooleanVariableModifier &data);
 
-	Common::SharedPtr<ModifierSaveLoad> getSaveLoad() override;
-
 	bool varSetValue(MiniscriptThread *thread, const DynamicValue &value) override;
-	void varGetValue(MiniscriptThread *thread, DynamicValue &dest) const override;
+	void varGetValue(DynamicValue &dest) const override;
 
 #ifdef MTROPOLIS_DEBUG_ENABLE
 	const char *debugGetTypeName() const override { return "Boolean Variable Modifier"; }
@@ -949,21 +1149,33 @@ public:
 #endif
 
 private:
+	Common::SharedPtr<Modifier> shallowClone() const override;
+	const char *getDefaultName() const override;
+};
+
+class BooleanVariableStorage : public VariableStorage {
+public:
+	friend class BooleanVariableModifier;
+
+	BooleanVariableStorage();
+
+	Common::SharedPtr<ModifierSaveLoad> getSaveLoad(Runtime *runtime) override;
+
+	Common::SharedPtr<VariableStorage> clone() const override;
+
+private:
 	class SaveLoad : public ModifierSaveLoad {
 	public:
-		explicit SaveLoad(BooleanVariableModifier *modifier);
+		explicit SaveLoad(BooleanVariableStorage *modifier);
 
 	private:
 		void commitLoad() const override;
 		void saveInternal(Common::WriteStream *stream) const override;
 		bool loadInternal(Common::ReadStream *stream, uint32 saveFileVersion) override;
 
-		BooleanVariableModifier *_modifier;
+		BooleanVariableStorage *_storage;
 		bool _value;
 	};
-
-	Common::SharedPtr<Modifier> shallowClone() const override;
-	const char *getDefaultName() const override;
 
 	bool _value;
 };
@@ -974,10 +1186,8 @@ public:
 
 	bool load(ModifierLoaderContext &context, const Data::IntegerVariableModifier &data);
 
-	Common::SharedPtr<ModifierSaveLoad> getSaveLoad() override;
-
 	bool varSetValue(MiniscriptThread *thread, const DynamicValue &value) override;
-	void varGetValue(MiniscriptThread *thread, DynamicValue &dest) const override;
+	void varGetValue(DynamicValue &dest) const override;
 
 #ifdef MTROPOLIS_DEBUG_ENABLE
 	const char *debugGetTypeName() const override { return "Integer Variable Modifier"; }
@@ -986,33 +1196,45 @@ public:
 #endif
 
 private:
+	Common::SharedPtr<Modifier> shallowClone() const override;
+	const char *getDefaultName() const override;
+};
+
+class IntegerVariableStorage : public VariableStorage {
+public:
+	friend class IntegerVariableModifier;
+
+	IntegerVariableStorage();
+
+	Common::SharedPtr<ModifierSaveLoad> getSaveLoad(Runtime *runtime) override;
+
+	Common::SharedPtr<VariableStorage> clone() const override;
+
+private:
 	class SaveLoad : public ModifierSaveLoad {
 	public:
-		explicit SaveLoad(IntegerVariableModifier *modifier);
+		explicit SaveLoad(IntegerVariableStorage *storage);
 
 	private:
 		void commitLoad() const override;
 		void saveInternal(Common::WriteStream *stream) const override;
 		bool loadInternal(Common::ReadStream *stream, uint32 saveFileVersion) override;
 
-		IntegerVariableModifier *_modifier;
+		IntegerVariableStorage *_storage;
 		int32 _value;
 	};
-
-	Common::SharedPtr<Modifier> shallowClone() const override;
-	const char *getDefaultName() const override;
 
 	int32 _value;
 };
 
 class IntegerRangeVariableModifier : public VariableModifier {
 public:
+	IntegerRangeVariableModifier();
+
 	bool load(ModifierLoaderContext &context, const Data::IntegerRangeVariableModifier &data);
 
-	Common::SharedPtr<ModifierSaveLoad> getSaveLoad() override;
-
 	bool varSetValue(MiniscriptThread *thread, const DynamicValue &value) override;
-	void varGetValue(MiniscriptThread *thread, DynamicValue &dest) const override;
+	void varGetValue(DynamicValue &dest) const override;
 
 	bool readAttribute(MiniscriptThread *thread, DynamicValue &result, const Common::String &attrib) override;
 	MiniscriptInstructionOutcome writeRefAttribute(MiniscriptThread *thread, DynamicValueWriteProxy &result, const Common::String &attrib) override;
@@ -1024,33 +1246,45 @@ public:
 #endif
 
 private:
+	Common::SharedPtr<Modifier> shallowClone() const override;
+	const char *getDefaultName() const override;
+};
+
+class IntegerRangeVariableStorage : public VariableStorage {
+public:
+	friend class IntegerRangeVariableModifier;
+
+	IntegerRangeVariableStorage();
+
+	Common::SharedPtr<ModifierSaveLoad> getSaveLoad(Runtime *runtime) override;
+
+	Common::SharedPtr<VariableStorage> clone() const override;
+
+private:
 	class SaveLoad : public ModifierSaveLoad {
 	public:
-		explicit SaveLoad(IntegerRangeVariableModifier *modifier);
+		explicit SaveLoad(IntegerRangeVariableStorage *storage);
 
 	private:
 		void commitLoad() const override;
 		void saveInternal(Common::WriteStream *stream) const override;
 		bool loadInternal(Common::ReadStream *stream, uint32 saveFileVersion) override;
 
-		IntegerRangeVariableModifier *_modifier;
+		IntegerRangeVariableStorage *_storage;
 		IntRange _range;
 	};
-
-	Common::SharedPtr<Modifier> shallowClone() const override;
-	const char *getDefaultName() const override;
 
 	IntRange _range;
 };
 
 class VectorVariableModifier : public VariableModifier {
 public:
+	VectorVariableModifier();
+
 	bool load(ModifierLoaderContext &context, const Data::VectorVariableModifier &data);
 
-	Common::SharedPtr<ModifierSaveLoad> getSaveLoad() override;
-
 	bool varSetValue(MiniscriptThread *thread, const DynamicValue &value) override;
-	void varGetValue(MiniscriptThread *thread, DynamicValue &dest) const override;
+	void varGetValue(DynamicValue &dest) const override;
 
 	bool readAttribute(MiniscriptThread *thread, DynamicValue &result, const Common::String &attrib) override;
 	MiniscriptInstructionOutcome writeRefAttribute(MiniscriptThread *thread, DynamicValueWriteProxy &result, const Common::String &attrib) override;
@@ -1062,33 +1296,44 @@ public:
 #endif
 
 private:
+	Common::SharedPtr<Modifier> shallowClone() const override;
+	const char *getDefaultName() const override;
+};
+
+class VectorVariableStorage : public VariableStorage {
+	friend class VectorVariableModifier;
+
+	VectorVariableStorage();
+
+	Common::SharedPtr<ModifierSaveLoad> getSaveLoad(Runtime *runtime) override;
+
+	Common::SharedPtr<VariableStorage> clone() const override;
+
+private:
 	class SaveLoad : public ModifierSaveLoad {
 	public:
-		explicit SaveLoad(VectorVariableModifier *modifier);
+		explicit SaveLoad(VectorVariableStorage *storage);
 
 	private:
 		void commitLoad() const override;
 		void saveInternal(Common::WriteStream *stream) const override;
 		bool loadInternal(Common::ReadStream *stream, uint32 saveFileVersion) override;
 
-		VectorVariableModifier *_modifier;
+		VectorVariableStorage *_storage;
 		AngleMagVector _vector;
 	};
-
-	Common::SharedPtr<Modifier> shallowClone() const override;
-	const char *getDefaultName() const override;
 
 	AngleMagVector _vector;
 };
 
 class PointVariableModifier : public VariableModifier {
 public:
+	PointVariableModifier();
+
 	bool load(ModifierLoaderContext &context, const Data::PointVariableModifier &data);
 
-	Common::SharedPtr<ModifierSaveLoad> getSaveLoad() override;
-
 	bool varSetValue(MiniscriptThread *thread, const DynamicValue &value) override;
-	void varGetValue(MiniscriptThread *thread, DynamicValue &dest) const override;
+	void varGetValue(DynamicValue &dest) const override;
 
 	bool readAttribute(MiniscriptThread *thread, DynamicValue &result, const Common::String &attrib) override;
 	MiniscriptInstructionOutcome writeRefAttribute(MiniscriptThread *thread, DynamicValueWriteProxy &writeProxy, const Common::String &attrib) override;
@@ -1100,21 +1345,33 @@ public:
 #endif
 
 private:
+	Common::SharedPtr<Modifier> shallowClone() const override;
+	const char *getDefaultName() const override;
+};
+
+class PointVariableStorage : public VariableStorage {
+public:
+	friend class PointVariableModifier;
+
+	PointVariableStorage();
+
+	Common::SharedPtr<ModifierSaveLoad> getSaveLoad(Runtime *runtime) override;
+
+	Common::SharedPtr<VariableStorage> clone() const override;
+
+private:
 	class SaveLoad : public ModifierSaveLoad {
 	public:
-		explicit SaveLoad(PointVariableModifier *modifier);
+		explicit SaveLoad(PointVariableStorage *storage);
 
 	private:
 		void commitLoad() const override;
 		void saveInternal(Common::WriteStream *stream) const override;
 		bool loadInternal(Common::ReadStream *stream, uint32 saveFileVersion) override;
 
-		PointVariableModifier *_modifier;
+		PointVariableStorage *_storage;
 		Common::Point _value;
 	};
-
-	Common::SharedPtr<Modifier> shallowClone() const override;
-	const char *getDefaultName() const override;
 
 	Common::Point _value;
 };
@@ -1125,10 +1382,8 @@ public:
 
 	bool load(ModifierLoaderContext &context, const Data::FloatingPointVariableModifier &data);
 
-	Common::SharedPtr<ModifierSaveLoad> getSaveLoad() override;
-
 	bool varSetValue(MiniscriptThread *thread, const DynamicValue &value) override;
-	void varGetValue(MiniscriptThread *thread, DynamicValue &dest) const override;
+	void varGetValue(DynamicValue &dest) const override;
 
 #ifdef MTROPOLIS_DEBUG_ENABLE
 	const char *debugGetTypeName() const override { return "Floating Point Variable Modifier"; }
@@ -1137,33 +1392,45 @@ public:
 #endif
 
 private:
+	Common::SharedPtr<Modifier> shallowClone() const override;
+	const char *getDefaultName() const override;
+};
+
+class FloatingPointVariableStorage : public VariableStorage {
+public:
+	friend class FloatingPointVariableModifier;
+
+	FloatingPointVariableStorage();
+
+	Common::SharedPtr<ModifierSaveLoad> getSaveLoad(Runtime *runtime) override;
+
+	Common::SharedPtr<VariableStorage> clone() const override;
+
+private:
 	class SaveLoad : public ModifierSaveLoad {
 	public:
-		explicit SaveLoad(FloatingPointVariableModifier *modifier);
+		explicit SaveLoad(FloatingPointVariableStorage *storage);
 
 	private:
 		void commitLoad() const override;
 		void saveInternal(Common::WriteStream *stream) const override;
 		bool loadInternal(Common::ReadStream *stream, uint32 saveFileVersion) override;
 
-		FloatingPointVariableModifier *_modifier;
+		FloatingPointVariableStorage *_storage;
 		double _value;
 	};
-
-	Common::SharedPtr<Modifier> shallowClone() const override;
-	const char *getDefaultName() const override;
 
 	double _value;
 };
 
 class StringVariableModifier : public VariableModifier {
 public:
+	StringVariableModifier();
+
 	bool load(ModifierLoaderContext &context, const Data::StringVariableModifier &data);
 
-	Common::SharedPtr<ModifierSaveLoad> getSaveLoad() override;
-
 	bool varSetValue(MiniscriptThread *thread, const DynamicValue &value) override;
-	void varGetValue(MiniscriptThread *thread, DynamicValue &dest) const override;
+	void varGetValue(DynamicValue &dest) const override;
 
 #ifdef MTROPOLIS_DEBUG_ENABLE
 	const char *debugGetTypeName() const override { return "String Variable Modifier"; }
@@ -1172,36 +1439,49 @@ public:
 #endif
 
 private:
+	Common::SharedPtr<Modifier> shallowClone() const override;
+	const char *getDefaultName() const override;
+};
+
+class StringVariableStorage : public VariableStorage {
+public:
+	friend class StringVariableModifier;
+
+	StringVariableStorage();
+
+	Common::SharedPtr<ModifierSaveLoad> getSaveLoad(Runtime *runtime) override;
+
+	Common::SharedPtr<VariableStorage> clone() const override;
+
+private:
 	class SaveLoad : public ModifierSaveLoad {
 	public:
-		explicit SaveLoad(StringVariableModifier *modifier);
+		explicit SaveLoad(StringVariableStorage *storage);
 
 	private:
 		void commitLoad() const override;
 		void saveInternal(Common::WriteStream *stream) const override;
 		bool loadInternal(Common::ReadStream *stream, uint32 saveFileVersion) override;
 
-		StringVariableModifier *_modifier;
+		StringVariableStorage *_storage;
 		Common::String _value;
 	};
-
-	Common::SharedPtr<Modifier> shallowClone() const override;
-	const char *getDefaultName() const override;
 
 	Common::String _value;
 };
 
 class ObjectReferenceVariableModifierV1 : public VariableModifier {
 public:
+	ObjectReferenceVariableModifierV1();
+
 	bool load(ModifierLoaderContext &context, const Data::ObjectReferenceVariableModifierV1 &data);
+
+	bool varSetValue(MiniscriptThread *thread, const DynamicValue &value) override;
+	void varGetValue(DynamicValue &dest) const override;
 
 	bool respondsToEvent(const Event &evt) const override;
 	VThreadState consumeMessage(Runtime *runtime, const Common::SharedPtr<MessageProperties> &msg) override;
 
-	Common::SharedPtr<ModifierSaveLoad> getSaveLoad() override;
-
-	bool varSetValue(MiniscriptThread *thread, const DynamicValue &value) override;
-	void varGetValue(MiniscriptThread *thread, DynamicValue &dest) const override;
 
 #ifdef MTROPOLIS_DEBUG_ENABLE
 	const char *debugGetTypeName() const override { return "Object Reference Variable Modifier V1"; }
@@ -1209,24 +1489,37 @@ public:
 #endif
 
 private:
+	Common::SharedPtr<Modifier> shallowClone() const override;
+	const char *getDefaultName() const override;
+
+	Event _setToSourcesParentWhen;
+};
+
+class ObjectReferenceVariableV1Storage : public VariableStorage {
+public:
+	friend class ObjectReferenceVariableModifierV1;
+
+	ObjectReferenceVariableV1Storage();
+
+	Common::SharedPtr<ModifierSaveLoad> getSaveLoad(Runtime *runtime) override;
+
+	Common::SharedPtr<VariableStorage> clone() const override;
+
+private:
 	class SaveLoad : public ModifierSaveLoad {
 	public:
-		explicit SaveLoad(ObjectReferenceVariableModifierV1 *modifier);
+		explicit SaveLoad(ObjectReferenceVariableV1Storage *storage);
 
 	private:
 		void commitLoad() const override;
 		void saveInternal(Common::WriteStream *stream) const override;
 		bool loadInternal(Common::ReadStream *stream, uint32 saveFileVersion) override;
 
-		ObjectReferenceVariableModifierV1 *_modifier;
+		ObjectReferenceVariableV1Storage *_storage;
 		Common::WeakPtr<RuntimeObject> _value;
 	};
 
-	Common::SharedPtr<Modifier> shallowClone() const override;
-	const char *getDefaultName() const override;
-
 	Common::WeakPtr<RuntimeObject> _value;
-	Event _setToSourcesParentWhen;
 };
 
 }	// End of namespace MTropolis

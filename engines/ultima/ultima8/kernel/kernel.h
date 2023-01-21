@@ -49,11 +49,12 @@ public:
 
 	void reset();
 
-	ProcId addProcess(Process *proc); // returns pid of new process
+	// returns pid of new process
+	ProcId addProcess(Process *proc, bool dispose = true);
 
 	//! add a process and run it immediately
 	//! \return pid of process
-	ProcId addProcessExec(Process *proc);
+	ProcId addProcessExec(Process *proc, bool dispose = true);
 
 	void runProcesses();
 	Process *getProcess(ProcId pid);
@@ -100,6 +101,7 @@ public:
 	void kernelStats();
 	void processTypes();
 
+	bool canSave();
 	void save(Common::WriteStream *ws);
 	bool load(Common::ReadStream *rs, uint32 version);
 
@@ -161,11 +163,6 @@ private:
 
 	static Kernel *_kernel;
 };
-
-
-extern const uint U8_RAND_MAX;
-extern uint getRandom();
-
 
 } // End of namespace Ultima8
 } // End of namespace Ultima

@@ -22,7 +22,7 @@
 #ifndef SCUMM_HE_MOONBASE_NET_MAIN_H
 #define SCUMM_HE_MOONBASE_NET_MAIN_H
 
-#include "common/json.h"
+#include "common/formats/json.h"
 #include "backends/networking/enet/enet.h"
 #include "backends/networking/enet/host.h"
 #include "backends/networking/enet/socket.h"

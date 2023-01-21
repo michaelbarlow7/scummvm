@@ -20,6 +20,7 @@
  */
 
 #include "common/config-manager.h"
+#include "common/events.h"
 
 #include "ultima/ultima8/gumps/credits_gump.h"
 
@@ -87,8 +88,7 @@ void CreditsGump::InitGump(Gump *newparent, bool take_focus) {
 	_currentSurface = 0;
 	_currentY = 0;
 
-	Mouse::get_instance()->pushMouseCursor();
-	Mouse::get_instance()->setMouseCursor(Mouse::MOUSE_NONE);
+	Mouse::get_instance()->pushMouseCursor(Mouse::MOUSE_NONE);
 }
 
 void CreditsGump::Close(bool no_del) {
@@ -140,7 +140,7 @@ void CreditsGump::run() {
 	}
 
 	if (_state == CS_CLOSING) {
-		// pout << "CreditsGump: closing" << Std::endl;
+		//debug(MM_INFO, "CreditsGump: closing");
 		Close();
 		return;
 	}
@@ -157,7 +157,7 @@ void CreditsGump::run() {
 	if (available == 0) nextblock = 0;
 
 	if (_state == CS_FINISHING && available <= 156) {
-		// pout << "CreditsGump: waiting before closing" << Std::endl;
+		//debug(MM_INFO, "CreditsGump: waiting before closing");
 		_timer = 120;
 		_state = CS_CLOSING;
 
@@ -193,7 +193,7 @@ void CreditsGump::run() {
 				continue;
 			}
 
-			// pout << "Rendering paragraph: " << line << Std::endl;
+			//debug(MM_INFO, "Rendering paragraph: %s", line.c_str());
 
 			if (line[0] == '+') {
 				// set _title
@@ -235,7 +235,7 @@ void CreditsGump::run() {
 					unsigned int remaining;
 					extractLine(line, modifier, outline);
 
-					// pout << "Rendering line: " << outline << Std::endl;
+					//debug(MM_INFO, "Rendering line: %s", outline.c.str());
 
 					switch (modifier) {
 					case '&':
@@ -252,7 +252,7 @@ void CreditsGump::run() {
 						indent = 32;
 						break;
 					case '@':
-						// pout << "CreditsGump: done, finishing" << Std::endl;
+						//debug(MM_INFO, "CreditsGump: done, finishing");
 						_state = CS_FINISHING;
 						break;
 					default:
@@ -356,7 +356,8 @@ void CreditsGump::PaintThis(RenderSurface *surf, int32 lerp_factor, bool scaled)
 	if (h > 156) h = 156;
 	if (h > 0) {
 		Graphics::ManagedSurface* ms = _scroll[_currentSurface]->getRawSurface();
-		surf->Blit(ms, 0, _currentY, ms->getBounds().width(), h, 32, 44);
+		Common::Rect srcRect(0, _currentY, ms->w, _currentY + h);
+		surf->Blit(*ms, srcRect, 32, 44);
 	}
 
 	int y = h;
@@ -368,7 +369,8 @@ void CreditsGump::PaintThis(RenderSurface *surf, int32 lerp_factor, bool scaled)
 		if (h > 156 - y) h = 156 - y;
 		if (h > 0) {
 			Graphics::ManagedSurface* ms = _scroll[s]->getRawSurface();
-			surf->Blit(ms, 0, 0, ms->getBounds().width(), h, 32, 44 + y);
+			Common::Rect srcRect(0, 0, ms->w, h);
+			surf->Blit(*ms, srcRect, 32, 44 + y);
 		}
 		y += h;
 	}

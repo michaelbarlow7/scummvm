@@ -94,9 +94,9 @@ bool ZCodeMetaEngine::detectGames(const Common::FSList &fslist, DetectedGames &g
 				continue;
 			}
 			gameFile.seek(18);
-			strcpy(&serial[0], "\"");
+			Common::strcpy_s(&serial[0], sizeof(serial), "\"");
 			gameFile.read(&serial[1], 6);
-			strcpy(&serial[7], "\"");
+			Common::strcpy_s(&serial[7], sizeof(serial)-7, "\"");
 		} else {
 			Blorb b(*file, INTERPRETER_ZCODE);
 			Common::SeekableReadStream *f = b.createReadStreamForMember("game");
@@ -104,9 +104,9 @@ bool ZCodeMetaEngine::detectGames(const Common::FSList &fslist, DetectedGames &g
 
 			if (!emptyBlorb) {
 				f->seek(18);
-				strcpy(&serial[0], "\"");
+				Common::strcpy_s(&serial[0], sizeof(serial), "\"");
 				f->read(&serial[1], 6);
-				strcpy(&serial[7], "\"");
+				Common::strcpy_s(&serial[7], sizeof(serial) - 7, "\"");
 				delete f;
 			}
 		}
@@ -121,8 +121,8 @@ bool ZCodeMetaEngine::detectGames(const Common::FSList &fslist, DetectedGames &g
 			++p;
 
 		if (!p->_gameId) {
-			// Generic .dat/.zip files don't get reported as matches unless they have a known md5
-			if (filename.hasSuffixIgnoreCase(".dat") || filename.hasSuffixIgnoreCase(".zip") || emptyBlorb)
+			// Generic .dat/.data/.zip files don't get reported as matches unless they have a known md5
+			if (filename.hasSuffixIgnoreCase(".dat") || filename.hasSuffixIgnoreCase(".data") || filename.hasSuffixIgnoreCase(".zip") || emptyBlorb)
 				continue;
 
 			const PlainGameDescriptor &desc = ZCODE_GAME_LIST[0];

@@ -96,6 +96,8 @@ public:
 	// release the control to widget, this happens when we are changing sprites. Because we are having the new cast member and the old one shall leave
 	void releaseWidget() { _widget = nullptr; }
 
+	virtual Common::String formatInfo() { return Common::String(); };
+
 	CastType _type;
 	Common::Rect _initialRect;
 	Common::Rect _boundingRect;
@@ -131,6 +133,8 @@ public:
 	Datum getField(int field) override;
 	bool setField(int field, const Datum &value) override;
 
+	Common::String formatInfo() override;
+
 	Image::ImageDecoder *_img;
 	Graphics::Surface *_ditheredImg;
 	Graphics::FloodFill *_matte;
@@ -146,12 +150,6 @@ public:
 
 	uint32 _tag;
 	bool _noMatte;
-
-private:
-	void ditherImage();
-	void ditherFloydImage();
-
-	Graphics::PaletteLookup _paletteLookup;
 };
 
 class DigitalVideoCastMember : public CastMember {
@@ -178,6 +176,8 @@ public:
 	bool hasField(int field) override;
 	Datum getField(int field) override;
 	bool setField(int field, const Datum &value) override;
+
+	Common::String formatInfo() override;
 
 	Common::String _filename;
 
@@ -221,6 +221,8 @@ public:
 
 	void loadFilmLoopData(Common::SeekableReadStreamEndian &stream);
 
+	Common::String formatInfo() override;
+
 	bool _enableSound;
 	bool _looping;
 	bool _crop;
@@ -233,6 +235,8 @@ public:
 class MovieCastMember : public CastMember {
 public:
 	MovieCastMember(Cast *cast, uint16 castId, Common::SeekableReadStreamEndian &stream, uint16 version);
+
+	Common::String formatInfo() override;
 
 	uint32 _flags;
 	bool _looping;
@@ -247,6 +251,8 @@ public:
 	SoundCastMember(Cast *cast, uint16 castId, Common::SeekableReadStreamEndian &stream, uint16 version);
 	~SoundCastMember();
 
+	Common::String formatInfo() override;
+
 	bool _looping;
 	AudioDecoder *_audio;
 };
@@ -258,6 +264,8 @@ public:
 	uint32 getBackColor() override { return _bgCol; }
 	void setBackColor(uint32 bgCol) override;
 	void setForeColor(uint32 fgCol) override;
+
+	Common::String formatInfo() override;
 
 	ShapeType _shapeType;
 	uint16 _pattern;
@@ -276,7 +284,6 @@ public:
 	TextCastMember(Cast *cast, uint16 castId, Common::SeekableReadStreamEndian &stream, uint16 version, uint8 flags1 = 0, bool asButton = false);
 	void setColors(uint32 *fgcolor, uint32 *bgcolor) override;
 
-	void setText(const Common::U32String &text);
 	Graphics::MacWidget *createWidget(Common::Rect &bbox, Channel *channel, SpriteType spriteType) override;
 
 	bool isEditable() override { return _editable; }
@@ -302,6 +309,8 @@ public:
 	int getTextSize();
 	void setTextSize(int textSize);
 
+	Common::String formatInfo() override;
+
 	SizeType _borderSize;
 	SizeType _gutterSize;
 	SizeType _boxShadow;
@@ -324,10 +333,13 @@ public:
 
 	Common::U32String _ftext;
 	Common::U32String _ptext;
+	Common::String _rtext;
 	void importStxt(const Stxt *stxt);
 	void importRTE(byte *text);
 
 	Common::U32String getText();
+	Common::String getRawText();
+	void setRawText(const Common::String &text);
 
 private:
 	uint32 _bgcolor;

@@ -83,13 +83,14 @@ struct ADGameFileDescription {
  * records that contain just a filename with an MD5, plus a file size.
  */
 #define AD_ENTRY3s(f1, x1, s1, f2, x2, s2, f3, x3, s3) {{f1, 0, x1, s1}, {f2, 0, x2, s2}, {f3, 0, x3, s3}, AD_LISTEND}
+#define AD_ENTRY4s(f1, x1, s1, f2, x2, s2, f3, x3, s3, f4, x4, s4) {{f1, 0, x1, s1}, {f2, 0, x2, s2}, {f3, 0, x3, s3}, {f4, 0, x4, s4}, AD_LISTEND}
 
 /**
  * Flags used in the game description.
  *
  * Note that the lowest 16 bits are currently reserved for use by the client code.
  */
-enum ADGameFlags {
+enum ADGameFlags : uint {
 	ADGF_NO_FLAGS        =  0u,        ///< No flags.
 	ADGF_TAILMD5         = (1u << 16), ///< Calculate the MD5 for this entry from the end of the file.
 	ADGF_AUTOGENTARGET   = (1u << 17), ///< Automatically generate gameid from @ref ADGameDescription::extra.
@@ -241,7 +242,24 @@ enum ADFlags {
 	 * the detector to find files inside subdirectories. @c _directoryGlobs are
 	 * extracted from the entries.
 	 */
-	 kADFlagMatchFullPaths = (1 << 1)
+	 kADFlagMatchFullPaths = (1 << 1),
+
+	/**
+	 * If set, the engine's fallback detection results are used instead of the
+	 * partial matches found in the detection table.
+	 *
+	 * An engine sets this if its fallback detection produces good results that
+	 * should always be used. If fallback detection fails, then partial matches
+	 * are still used.
+	 */
+	 kADFlagPreferFallbackDetection = (1 << 2),
+
+	 /**
+	  * Indicates engine's ability to play a variant of a game with unknown files.
+	  * This will leave the detection entries with partial matches in the list
+	  * of detected games.
+	  */
+	kADFlagCanPlayUnknownVariants = (1 << 3),
 };
 
 
@@ -282,11 +300,6 @@ protected:
 	 * by this engine.
 	 */
 	const PlainGameDescriptor *_gameIds;
-
-	/**
-	 * A map containing all the extra game GUI options the engine supports.
-	 */
-	const ADExtraGuiOptionsMap * const _extraGuiOptions;
 
 	/**
 	 * The number of bytes to compute the MD5 checksum for.
@@ -343,7 +356,7 @@ public:
 	/**
 	 * Initialize game detection using AdvancedMetaEngineDetection.
 	 */
-	AdvancedMetaEngineDetection(const void *descs, uint descItemSize, const PlainGameDescriptor *gameIds, const ADExtraGuiOptionsMap *extraGuiOptions = 0);
+	AdvancedMetaEngineDetection(const void *descs, uint descItemSize, const PlainGameDescriptor *gameIds);
 
 	/**
 	 * Return a list of targets supported by the engine.
@@ -370,25 +383,9 @@ public:
 	 */
 	Common::Error createInstance(OSystem *syst, Engine **engine);
 
-	/**
-	 * Return a list of extra GUI options for the specified target.
-	 *
-	 * If no target is specified, all of the available custom GUI options are
-	 * returned for the plugin (used to set default values).
-	 *
-	 * Currently, this only supports options with checkboxes.
-	 *
-	 * The default implementation returns an empty list.
-	 *
-	 * @param target    Name of a config manager target.
-	 *
-	 * @return A list of extra GUI options for an engine plugin and target.
-	 */
-	const ExtraGuiOptions getExtraGuiOptions(const Common::String &target) const override final;
-
 	static Common::StringArray getPathsFromEntry(const ADGameDescription *g);
 
-	uint getMD5Bytes() const { return _md5Bytes; }
+	uint getMD5Bytes() const override final { return _md5Bytes; }
 
 protected:
 	/**
@@ -408,6 +405,7 @@ private:
 	void initSubSystems(const ADGameDescription *gameDesc) const;
 	void preprocessDescriptions();
 	bool isEntryGrayListed(const ADGameDescription *g) const;
+	void detectClashes() const;
 
 private:
 	Common::HashMap<Common::String, bool, Common::IgnoreCase_Hash, Common::IgnoreCase_EqualTo> _grayListMap;
@@ -434,12 +432,6 @@ protected:
 	virtual ADDetectedGames detectGame(const Common::FSNode &parent, const FileMap &allFiles, Common::Language language, Common::Platform platform, const Common::String &extra, uint32 skipADFlags = 0, bool skipIncomplete = false);
 
 	/**
-	 * @return True if variant of a game with unknown files can be played with the engine and false otherwise.
-	 * By default this is false.
-	 */
-	virtual bool canPlayUnknownVariants() const { return false; }
-
-	/**
 	 * Iterate over all @ref ADFileBasedFallback records inside @p fileBasedFallback
 	 * and return the record (or rather, the ADGameDescription
 	 * contained in it) for which all files described by it are present, and
@@ -460,7 +452,7 @@ protected:
 	void composeFileHashMap(FileMap &allFiles, const Common::FSList &fslist, int depth, const Common::String &parentName = Common::String()) const;
 
 	/** Get the properties (size and MD5) of this file. */
-	bool getFileProperties(const FileMap &allFiles, const ADGameDescription &game, const Common::String fname, FileProperties &fileProps) const;
+	bool getFileProperties(const FileMap &allFiles, MD5Properties md5prop, const Common::String &fname, FileProperties &fileProps) const;
 
 	/** Convert an AD game description into the shared game description format. */
 	virtual DetectedGame toDetectedGame(const ADDetectedGame &adGame, ADDetectedGameExtraInfo *extraInfo = nullptr) const;
@@ -529,7 +521,35 @@ public:
 	 *
 	 * Based on @ref MetaEngine::getFileProperties.
 	 */
-	bool getFilePropertiesExtern(uint md5Bytes, const FileMap &allFiles, const ADGameDescription &game, const Common::String fname, FileProperties &fileProps) const;
+	bool getFilePropertiesExtern(uint md5Bytes, const FileMap &allFiles, MD5Properties md5prop, const Common::String &fname, FileProperties &fileProps) const;
+
+protected:
+	/**
+	 * Return a list of extra GUI options for the specified target.
+	 *
+	 * If no target is specified, all of the available custom GUI options are
+	 * returned for the plugin (used to set default values).
+	 *
+	 * Currently, this only supports options with checkboxes.
+	 *
+	 * The default implementation returns an empty list.
+	 *
+	 * @param target    Name of a config manager target.
+	 *
+	 * @return A list of extra GUI options for an engine plugin and target.
+	 */
+	const ExtraGuiOptions getExtraGuiOptions(const Common::String &target) const override final;
+
+	/**
+	 * Returns a map containing all the extra game GUI options the engine supports.
+	 */
+	virtual const ADExtraGuiOptionsMap *getAdvancedExtraGuiOptions() const { return nullptr; }
+
+	/**
+	 * Returns the set of features that need to be enabled for the
+	 * extended save format to work
+	 */
+	bool checkExtendedSaves(MetaEngineFeature f) const;
 };
 
 /**

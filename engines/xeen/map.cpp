@@ -479,7 +479,7 @@ void MonsterObjectData::synchronize(XeenSerializer &s, MonsterData &monsterData)
 			obj._direction = mobStruct._direction;
 			obj._frame = 100;
 
-			if (obj._id < (int)_objectSprites.size()) {
+			if (obj._id >= 0 && obj._id < (int)_objectSprites.size()) {
 				obj._spriteId = _objectSprites[obj._id]._spriteId;
 				obj._sprites = &_objectSprites[obj._id]._sprites;
 			}
@@ -509,6 +509,12 @@ void MonsterObjectData::synchronize(XeenSerializer &s, MonsterData &monsterData)
 
 			if (mon._id < (int)_monsterSprites.size()) {
 				mon._spriteId = _monsterSprites[mon._id]._spriteId;
+
+				// WORKAROUND: For Clouds-only mine Alpha, the monster list is invalid
+				if (_vm->getGameID() == GType_Clouds && mon._spriteId == 105
+					&& monsterData.size() == 91)
+					return;
+
 				mon._sprites = &_monsterSprites[mon._id]._sprites;
 				mon._attackSprites = &_monsterSprites[mon._id]._attackSprites;
 				mon._monsterData = &monsterData[mon._spriteId];
@@ -688,6 +694,42 @@ void Map::load(int mapId) {
 		_animationInfo.load("dark.dat");
 		_monsterData.load((_vm->getGameID() == GType_Swords) ? "monsters.swd" : "dark.mon");
 		_wallPicSprites.load("darkpic.dat");
+
+		// FIXME: Temporary fix for last monster in code to avoid regenerating xeen.ccs
+		if (_vm->getGameID() == GType_Swords) {
+			MonsterStruct &m = _monsterData[150];
+			m._name = "GateMaster";
+			m._experience = 200000;
+			m._hp = 1900;
+			m._armorClass = 0x32;
+			m._speed = 0x42;
+			m._numberOfAttacks = 1;
+			m._hatesClass = (CharacterClass)0xf;
+			m._strikes = 15;
+			m._dmgPerStrike = 0x82;
+			m._attackType = (DamageType)4;
+			m._specialAttack = (SpecialAttack)0x14;
+			m._hitChance = 0;
+			m._rangeAttack = 1;
+			m._monsterType = (MonsterType)0;
+			m._fireResistence = 100;
+			m._electricityResistence = 40;
+			m._coldResistence = 40;
+			m._poisonResistence = 40;
+			m._energyResistence = 40;
+			m._magicResistence = 40;
+			m._phsyicalResistence = 30;
+			m._field29 = 0;
+			m._gold = 0;
+			m._gems = 0;
+			m._itemDrop = 0;
+			m._flying = 1;
+			m._imageNumber = 31;
+			m._loopAnimation = 0;
+			m._animationEffect = 0;
+			m._fx = 100;
+		}
+
 	} else if (_vm->getGameID() == GType_Clouds) {
 		_animationInfo.load("animinfo.cld");
 		_monsterData.load("monsters.cld");

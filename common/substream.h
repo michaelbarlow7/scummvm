@@ -22,6 +22,7 @@
 #ifndef COMMON_SUBSTREAM_H
 #define COMMON_SUBSTREAM_H
 
+#include "common/mutex.h"
 #include "common/ptr.h"
 #include "common/stream.h"
 #include "common/types.h"
@@ -96,6 +97,7 @@ public:
  */
 class SeekableSubReadStreamEndian :  virtual public SeekableSubReadStream, virtual public SeekableReadStreamEndian {
 public:
+	WARN_DEPRECATED("Use SeekableReadStreamEndianWrapper with SeekableSubReadStream instead")
 	SeekableSubReadStreamEndian(SeekableReadStream *parentStream, uint32 begin, uint32 end, bool bigEndian, DisposeAfterUse::Flag disposeParentStream = DisposeAfterUse::NO)
 		: SeekableSubReadStream(parentStream, begin, end, disposeParentStream),
 		  SeekableReadStreamEndian(bigEndian),
@@ -130,6 +132,24 @@ public:
 	}
 
 	virtual uint32 read(void *dataPtr, uint32 dataSize);
+};
+
+/**
+ * A special variant of SafeSeekableSubReadStream which locks a mutex during each read.
+ * This is necessary if the music is streamed from disk and it could happen
+ * that a sound effect or another music track is played from the same read stream
+ * while the first music track is updated/read.
+ */
+
+class SafeMutexedSeekableSubReadStream : public Common::SafeSeekableSubReadStream {
+public:
+	SafeMutexedSeekableSubReadStream(SeekableReadStream *parentStream, uint32 begin, uint32 end, DisposeAfterUse::Flag disposeParentStream,
+		Common::Mutex &mutex)
+		: SafeSeekableSubReadStream(parentStream, begin, end, disposeParentStream), _mutex(mutex) {
+	}
+	uint32 read(void *dataPtr, uint32 dataSize) override;
+protected:
+	Common::Mutex &_mutex;
 };
 
 /** @} */

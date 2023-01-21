@@ -40,6 +40,7 @@ namespace Director {
 class Channel;
 class MacArchive;
 struct MacShape;
+struct LingoState;
 
 struct TransParams {
 	TransitionType type;
@@ -124,6 +125,7 @@ public:
 	void transMultiPass(TransParams &t, Common::Rect &clipRect, Graphics::ManagedSurface *tmpSurface);
 	void transZoom(TransParams &t, Common::Rect &clipRect, Graphics::ManagedSurface *tmpSurface);
 
+	// window.cpp
 	Common::Point getMousePos();
 
 	DirectorEngine *getVM() const { return _vm; }
@@ -149,6 +151,11 @@ public:
 
 	Common::String getSharedCastPath();
 
+	LingoState *getLingoState() { return _lingoState; };
+	uint32 frozenLingoStateCount() { return _frozenLingoStates.size(); };
+	void freezeLingoState();
+	void thawLingoState();
+
 	// events.cpp
 	bool processEvent(Common::Event &event) override;
 
@@ -164,14 +171,15 @@ public:
 	Common::Error loadInitialMovie();
 	void probeProjector(const Common::String &movie);
 	void probeMacBinary(MacArchive *archive);
-	Archive *openMainArchive(const Common::String movie);
-	void loadEXE(const Common::String movie);
-	void loadEXEv3(Common::SeekableReadStream *stream);
-	void loadEXEv4(Common::SeekableReadStream *stream);
-	void loadEXEv5(Common::SeekableReadStream *stream);
-	void loadEXEv7(Common::SeekableReadStream *stream);
-	void loadEXERIFX(Common::SeekableReadStream *stream, uint32 offset);
-	void loadMac(const Common::String movie);
+	void loadINIStream();
+	Archive *openArchive(const Common::String movie);
+	Archive *loadEXE(const Common::String movie);
+	Archive *loadEXEv3(Common::SeekableReadStream *stream);
+	Archive *loadEXEv4(Common::SeekableReadStream *stream);
+	Archive *loadEXEv5(Common::SeekableReadStream *stream);
+	Archive *loadEXEv7(Common::SeekableReadStream *stream);
+	Archive *loadEXERIFX(Common::SeekableReadStream *stream, uint32 offset);
+	Archive *loadMac(const Common::String movie);
 	void loadStartMovieXLibs();
 
 	// lingo/lingo-object.cpp
@@ -191,23 +199,15 @@ public:
 	Common::List<MovieReference> _movieStack;
 	bool _newMovieStarted;
 
-	// saved Lingo state
-	Common::Array<CFrame *> _callstack;
-	uint _retPC;
-	ScriptData *_retScript;
-	ScriptContext *_retContext;
-	bool _retFreezeContext;
-	DatumHash *_retLocalVars;
-	Datum _retMe;
-
 private:
 	uint32 _stageColor;
 
 	DirectorEngine *_vm;
 	DirectorSound *_soundManager;
+	LingoState *_lingoState;
+	Common::Array<LingoState *> _frozenLingoStates;
 	bool _isStage;
 	Archive *_mainArchive;
-	Common::MacResManager *_macBinary;
 	Movie *_currentMovie;
 	Common::String _currentPath;
 	Common::StringArray _movieQueue;

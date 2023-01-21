@@ -92,7 +92,8 @@ static void _closeIfExists(Gump *gump) {
 }
 
 static const char *_getRandomMovie(const char **movies, int nmovies) {
-	int offset = Ultima8Engine::get_instance()->getRandomNumber(nmovies - 1);
+	Common::RandomSource &rs = Ultima8Engine::get_instance()->getRandomSource();
+	int offset = rs.getRandomNumber(nmovies - 1);
 	return movies[offset];
 }
 }
@@ -104,8 +105,7 @@ WeaselGump::WeaselGump(uint16 level)
 	  _state(kWeaselStart), _curItem(0), _ammoMode(false), _curItemCost(1),
 	  _curItemShape(0), _ui(nullptr), _movie(nullptr), _weaselDat(nullptr) {
 	Mouse *mouse = Mouse::get_instance();
-	mouse->pushMouseCursor();
-	mouse->setMouseCursor(Mouse::MOUSE_HAND);
+	mouse->pushMouseCursor(Mouse::MOUSE_HAND);
 }
 
 WeaselGump::~WeaselGump() {

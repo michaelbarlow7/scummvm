@@ -326,6 +326,8 @@ Select AdLib (OPL) emulator
 .Ar nuked ,
 .Ar opl2lpt
 .Pc .
+.It Fl -output-channels= Ns Ar RATE
+Set output channel count (e.g. 2 for stereo).
 .It Fl -output-rate= Ns Ar RATE
 Set output sample rate in Hz (e.g. 22050).
 .It Fl -platform= Ns Ar PLATFORM
@@ -345,6 +347,7 @@ Specify platform of game
 .Ar cdi ,
 .Ar coco ,
 .Ar coco3 ,
+.Ar cpc ,
 .Ar fmtowns ,
 .Ar ios ,
 .Ar linux ,
@@ -369,6 +372,8 @@ Specify platform of game
 .Ar xbox ,
 .Ar zx
 .Pc .
+.It Fl -random-seed= Ns Ar NUM
+Set the random seed number used to initialize entropy.
 .It Fl - Ns Oo Cm no- Oc Ns Cm recursive
 In combination with
 .Fl -add

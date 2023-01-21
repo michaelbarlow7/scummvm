@@ -38,14 +38,13 @@ Process::Process(ObjId it, uint16 ty)
 }
 
 void Process::fail() {
-	assert(!(_flags & PROC_TERMINATED));
-
 	_flags |= PROC_FAILED;
 	terminate();
 }
 
 void Process::terminate() {
-	assert(!(_flags & PROC_TERMINATED));
+	if (_flags & PROC_TERMINATED)
+		return;
 
 	Kernel *kernel = Kernel::get_instance();
 
@@ -105,7 +104,7 @@ void Process::suspend() {
 	_flags |= PROC_SUSPENDED;
 }
 
-void Process::dumpInfo() const {
+Common::String Process::dumpInfo() const {
 	Common::String info = Common::String::format(
 		"Process %d class %s, item %d, type %x, status ",
 		getPid(), GetClassType()._className, _itemNum, _type);
@@ -116,6 +115,8 @@ void Process::dumpInfo() const {
 	if (_flags & PROC_TERM_DEFERRED) info += "t";
 	if (_flags & PROC_FAILED) info += "F";
 	if (_flags & PROC_RUNPAUSED) info += "R";
+	if (_flags & PROC_TERM_DISPOSE) info += "D";
+
 	if (!_waiting.empty()) {
 		info += ", notify: ";
 		for (Std::vector<ProcId>::const_iterator i = _waiting.begin(); i != _waiting.end(); ++i) {
@@ -124,7 +125,7 @@ void Process::dumpInfo() const {
 		}
 	}
 
-	g_debugger->debugPrintf("%s\n", info.c_str());
+	return info;
 }
 
 void Process::saveData(Common::WriteStream *ws) {

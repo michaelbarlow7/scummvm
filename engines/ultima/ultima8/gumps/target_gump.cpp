@@ -19,8 +19,8 @@
  *
  */
 
+#include "ultima/ultima.h"
 #include "ultima/ultima8/gumps/target_gump.h"
-
 #include "ultima/ultima8/ultima8.h"
 #include "ultima/ultima8/kernel/mouse.h"
 #include "ultima/ultima8/gumps/gump_notify_process.h"
@@ -56,8 +56,7 @@ void TargetGump::InitGump(Gump *newparent, bool take_focus) {
 	CreateNotifier();
 
 	Mouse *mouse = Mouse::get_instance();
-	mouse->pushMouseCursor();
-	mouse->setMouseCursor(Mouse::MOUSE_TARGET);
+	mouse->pushMouseCursor(Mouse::MOUSE_TARGET);
 }
 
 void TargetGump::Close(bool no_del) {
@@ -86,8 +85,7 @@ void TargetGump::onMouseUp(int button, int32 mx, int32 my) {
 
 	if (item) {
 		// done
-		pout << "Target result: ";
-		item->dumpInfo();
+		debugC(kDebugObject, "Target result: %s", item->dumpInfo().c_str());
 
 		_processResult = objId;
 		Close();

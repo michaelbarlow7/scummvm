@@ -19,6 +19,9 @@
  *
  */
 
+// For dangerous AGS API
+#define FORBIDDEN_SYMBOL_EXCEPTION_strcpy
+
 #include "ags/lib/allegro.h"
 #include "ags/lib/std/vector.h"
 #include "ags/shared/core/platform.h"
@@ -757,12 +760,12 @@ void IAGSEngine::GetRenderStageDesc(AGSRenderStageDesc *desc) {
 void IAGSEngine::GetGameInfo(AGSGameInfo* ginfo) {
 	if (ginfo->Version >= 26) {
 		snprintf(ginfo->GameName, sizeof(ginfo->GameName), "%s", _GP(game).gamename);
-		snprintf(ginfo->guid, sizeof(ginfo->guid), "%s", _GP(game).guid);
-		ginfo->uniqueid = _GP(game).uniqueid;
+		snprintf(ginfo->Guid, sizeof(ginfo->Guid), "%s", _GP(game).guid);
+		ginfo->UniqueId = _GP(game).uniqueid;
 	}
 }
 
-IAGSFontRenderer2* IAGSEngine::ReplaceFontRenderer2(int fontNumber, IAGSFontRenderer2 *newRenderer) {
+IAGSFontRenderer* IAGSEngine::ReplaceFontRenderer2(int fontNumber, IAGSFontRenderer2 *newRenderer) {
 	auto *old_render = font_replace_renderer(fontNumber, newRenderer);
 	GUI::MarkForFontUpdate(fontNumber);
 	return old_render;

@@ -50,8 +50,6 @@ class Holomap {
 private:
 	TwinEEngine *_engine;
 
-	bool isTriangleVisible(const Vertex *vertices) const;
-
 	struct Location {
 		int16 angleX;
 		int16 angleY;
@@ -67,13 +65,13 @@ private:
 		int16 z = 0;
 		uint16 projectedPosIdx = 0;
 	};
-	HolomapSort _holomapSort[512];
+	HolomapSort _holomapSort[16 * 32];
 
 	struct HolomapProjectedPos {
-		int16 x1 = 0;
-		int16 y1 = 0;
-		int16 x2 = 0;
-		int16 y2 = 0;
+		uint16 x1 = 0;
+		uint16 y1 = 0;
+		uint16 x2 = 0;
+		uint16 y2 = 0;
 	};
 	HolomapProjectedPos _projectedSurfacePositions[561];
 	int _projectedSurfaceIndex = 0;
@@ -86,18 +84,18 @@ private:
 	uint8 _paletteHolomap[NUMOFCOLORS * 3]{0};
 
 	void drawHolomapText(int32 centerx, int32 top, const char *title);
-	int32 getNextHolomapLocation(int32 currentLocation, int32 dir) const;
+	int32 searchNextArrow(int32 currentLocation, int32 dir) const;
 
-	void renderLocations(int xRot, int yRot, int zRot, bool lower);
+	void drawListPos(int xRot, int yRot, int zRot, bool lower);
 
 	/**
 	 * Renders a holomap path with single path points appearing slowly one after another
 	 */
-	void renderHolomapPointModel(const IVec3 &angle, int32 x, int32 y);
-	void prepareHolomapSurface(Common::SeekableReadStream *holomapSurfaceStream);
-	void prepareHolomapProjectedPositions();
-	void prepareHolomapPolygons();
-	void renderHolomapSurfacePolygons(uint8 *holomapImage, uint32 holomapImageSize);
+	void drawHoloObj(const IVec3 &angle, int32 x, int32 y);
+	void computeCoorGlobe(Common::SeekableReadStream *holomapSurfaceStream);
+	void computeCoorMapping();
+	void computeGlobeProj();
+	void drawHoloMap(uint8 *holomapImage, uint32 holomapImageSize);
 	void renderHolomapVehicle(uint &frameNumber, ActorMoveStruct &move, AnimTimerDataStruct &animTimerData, BodyData &bodyData, AnimData &animData);
 
 	/**
@@ -128,10 +126,10 @@ public:
 	void drawHolomapTrajectory(int32 trajectoryIndex);
 
 	/** Load Holomap content */
-	void loadHolomapGFX();
+	void initHoloDatas();
 
 	/** Main holomap process loop */
-	void processHolomap();
+	void holoMap();
 };
 
 } // namespace TwinE

@@ -719,7 +719,11 @@ void ScummEngine_v6::o6_jump() {
 
 	// WORKAROUND bug #4464: Talking to the guard at the bigfoot party, after
 	// he's let you inside, will cause the game to hang, if you end the conversation.
-	// This is a script bug, due to a missing jump in one segment of the script.
+	// This is a script bug, due to a missing jump in one segment of the script,
+	// and it also happens with the original interpreters.
+	//
+	// Intentionally not using `_enableEnhancements`, since having the game hang
+	// is not useful to anyone.
 	if (_game.id == GID_SAMNMAX && vm.slot[_currentScript].number == 101 && readVar(0x8000 + 97) == 1 && offset == 1) {
 		offset = -18;
 	}
@@ -749,7 +753,7 @@ void ScummEngine_v6::o6_startScript() {
 	// This fix checks for this situation happening (and only this one), and makes a call
 	// to a soundKludge operation like script 29 would have done.
 	if (_game.id == GID_CMI && _currentRoom == 19 &&
-		vm.slot[_currentScript].number == 168 && script == 118) {
+		vm.slot[_currentScript].number == 168 && script == 118 && _enableEnhancements) {
 		int list[16] = { 4096, 1278, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
 		_sound->soundKludge(list, 2);
 	}
@@ -757,9 +761,9 @@ void ScummEngine_v6::o6_startScript() {
 	// WORKAROUND bug #269: At Dino Bungee National Memorial, the buttons for
 	// the Wally and Rex dinosaurs will always restart their speech, instead of
 	// stopping and starting their speech. This was a script bug in the original
-	// game.
+	// game, which would also block the "That was informative" reaction from Sam.
 	if (_game.id == GID_SAMNMAX && _roomResource == 59 &&
-		vm.slot[_currentScript].number == 201 && script == 48) {
+		vm.slot[_currentScript].number == 201 && script == 48 && _enableEnhancements) {
 		o6_breakHere();
 	}
 
@@ -1063,7 +1067,6 @@ void ScummEngine_v6::o6_setCameraAt() {
 		int x, y;
 
 		camera._follows = 0;
-		VAR(VAR_CAMERA_FOLLOWED_ACTOR) = 0;
 
 		y = pop();
 		x = pop();
@@ -1204,24 +1207,19 @@ void ScummEngine_v6::o6_faceActor() {
 void ScummEngine_v6::o6_animateActor() {
 	int anim = pop();
 	int act = pop();
-	if (_game.id == GID_TENTACLE && _roomResource == 57 &&
-		vm.slot[_currentScript].number == 19 && act == 593) {
-		// WORKAROUND bug #813: This very odd case (animateActor(593,250))
-		// occurs in DOTT, in the cutscene after George cuts down the "cherry
-		// tree" and the tree Laverne is trapped in vanishes...
-		// Not sure if this means animateActor somehow also must work for objects
-		// (593 is the time machine in room 57), or if this is simply a script bug.
-		act = 6;
-	}
-	if (_game.id == GID_SAMNMAX && _roomResource == 35 &&
-		vm.slot[_currentScript].number == 202 && act == 4 && anim == 14) {
+
+	if (_game.id == GID_SAMNMAX && _roomResource == 35 && vm.slot[_currentScript].number == 202 &&
+		act == 4 && anim == 14 && _enableEnhancements) {
 		// WORKAROUND bug #2068 (Animation glitch at World of Fish).
 		// Before starting animation 14 of the fisherman, make sure he isn't
-		// talking anymore. This appears to be a bug in the original game as well.
+		// talking anymore, otherwise the fishing line may appear twice when Max
+		// grabs it and subtitles (at a slow speed) and voices are both enabled.
+		// This bug exists in the original game as well.
 		if (getTalkingActor() == 4) {
 			stopTalk();
 		}
 	}
+
 	if (_game.id == GID_SAMNMAX && _roomResource == 47 && vm.slot[_currentScript].number == 202 &&
 		act == 2 && anim == 249 && _enableEnhancements) {
 		// WORKAROUND for bug #3832: parts of Bruno are left on the screen when he
@@ -1233,8 +1231,13 @@ void ScummEngine_v6::o6_animateActor() {
 			a->putActor(0, 0, 0);
 	}
 
-	Actor *a = derefActor(act, "o6_animateActor");
-	a->animateActor(anim);
+	// Since there have been cases of the scripts sending garbage data
+	// as the actor number (see bug #813), we handle these cases cleanly
+	// by not crashing ScummVM and returning a nullptr Actor instead.
+	Actor *a = derefActorSafe(act, "o6_animateActor");
+	if (a) {
+		a->animateActor(anim);
+	}
 }
 
 void ScummEngine_v6::o6_doSentence() {
@@ -2405,6 +2408,28 @@ void ScummEngine_v6::o6_talkActor() {
 		return;
 	}
 
+	// WORKAROUND: In the French release of Full Throttle, a "piano-low-kick"
+	// string appears in the text when Ben looks at one of the small pictures
+	// above the piano in the bar. Probably an original placeholder which
+	// hasn't been properly replaced... Fixed in the 2017 remaster, though.
+	if (_game.id == GID_FT && _language == Common::FR_FRA
+		&& _roomResource == 7 && vm.slot[_currentScript].number == 77
+		&& _actorToPrintStrFor == 1 && _enableEnhancements) {
+		const int len = resStrLen(_scriptPointer) + 1;
+		if (len == 93 && memcmp(_scriptPointer + 16 + 18, "piano-low-kick", 14) == 0) {
+			byte *tmpBuf = new byte[len - 14 + 3];
+			memcpy(tmpBuf, _scriptPointer, 16 + 18);
+			memcpy(tmpBuf + 16 + 18, ", 1", 3);
+			memcpy(tmpBuf + 16 + 18 + 3, _scriptPointer + 16 + 18 + 14, len - (16 + 18 + 14));
+
+			_string[0].loadDefault();
+			actorTalk(tmpBuf);
+			delete[] tmpBuf;
+			_scriptPointer += len;
+			return;
+		}
+	}
+
 	_string[0].loadDefault();
 	actorTalk(_scriptPointer);
 
@@ -2611,9 +2636,6 @@ void ScummEngine_v7::o6_kernelSetFunctions() {
 				if ((_game.id == GID_FT) && (_game.features & GF_DEMO) && (_game.platform == Common::kPlatformMacintosh) &&
 					(!strcmp(videoname, "jumpgorge.san")))
 					_splayer->play("jumpgorg.san", _smushFrameRate);
-				// WORKAROUND: A faster frame rate is required, to keep audio/video in sync in this video
-				else if (_game.id == GID_DIG && !strcmp(videoname, "sq3.san"))
-					_splayer->play(videoname, 14);
 				else
 					_splayer->play(videoname, _smushFrameRate);
 

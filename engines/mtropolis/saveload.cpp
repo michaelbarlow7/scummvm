@@ -33,7 +33,7 @@
 namespace MTropolis {
 
 
-CompoundVarSaver::CompoundVarSaver(RuntimeObject *object) : _object(object) {
+CompoundVarSaver::CompoundVarSaver(Runtime *runtime, RuntimeObject *object) : _runtime(runtime), _object(object) {
 }
 
 bool CompoundVarSaver::writeSave(Common::WriteStream *stream) {
@@ -41,7 +41,7 @@ bool CompoundVarSaver::writeSave(Common::WriteStream *stream) {
 		return false;
 
 	Modifier *modifier = static_cast<Modifier *>(_object);
-	Common::SharedPtr<ModifierSaveLoad> saveLoad = modifier->getSaveLoad();
+	Common::SharedPtr<ModifierSaveLoad> saveLoad = modifier->getSaveLoad(_runtime);
 	if (!saveLoad)
 		return false;
 
@@ -159,6 +159,14 @@ bool MTropolisEngine::load(ISaveReader *reader, const Common::String &saveFileNa
 		dialog.runModal();
 
 		warning("Save file '%s' version is above the current save file version", saveFileName.c_str());
+		return false;
+	}
+
+	if (saveFileVersion < kEarliestSupportedSaveFileVersion) {
+		GUI::MessageDialog dialog(_("Saved game was created with an earlier, incompatible version of ScummVM. Unable to load."));
+		dialog.runModal();
+
+		warning("An error occurred while reading file '%s'", saveFileName.c_str());
 		return false;
 	}
 

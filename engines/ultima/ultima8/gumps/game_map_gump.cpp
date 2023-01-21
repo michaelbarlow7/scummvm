@@ -19,6 +19,7 @@
  *
  */
 
+#include "ultima/ultima.h"
 #include "ultima/ultima8/gumps/game_map_gump.h"
 #include "ultima/ultima8/kernel/kernel.h"
 #include "ultima/ultima8/world/world.h"
@@ -45,7 +46,7 @@ bool GameMapGump::_highlightItems = false;
 GameMapGump::GameMapGump() :
 	Gump(), _displayDragging(false), _displayList(0), _draggingShape(0),
 		_draggingFrame(0), _draggingFlags(0) {
-	_displayList = new ItemSorter();
+	_displayList = new ItemSorter(2048);
 }
 
 GameMapGump::GameMapGump(int x, int y, int width, int height) :
@@ -55,8 +56,7 @@ GameMapGump::GameMapGump(int x, int y, int width, int height) :
 	// Offset the gump. We want 0,0 to be the centre
 	_dims.moveTo(-_dims.width() / 2, -_dims.height() / 2);
 
-	pout << "Create _displayList ItemSorter object" << Std::endl;
-	_displayList = new ItemSorter();
+	_displayList = new ItemSorter(2048);
 }
 
 GameMapGump::~GameMapGump() {
@@ -106,7 +106,9 @@ void GameMapGump::PaintThis(RenderSurface *surf, int32 lerp_factor, bool scaled)
 		zlimit = roof->getZ();
 	}
 
-	_displayList->BeginDisplayList(surf, lx, ly, lz);
+	Rect clipWindow;
+	surf->GetClippingRect(clipWindow);
+	_displayList->BeginDisplayList(clipWindow, lx, ly, lz);
 
 	uint32 gametick = Kernel::get_instance()->getFrameNum();
 
@@ -165,7 +167,7 @@ void GameMapGump::PaintThis(RenderSurface *surf, int32 lerp_factor, bool scaled)
 	}
 
 
-	_displayList->PaintDisplayList(_highlightItems);
+	_displayList->PaintDisplayList(surf, _highlightItems);
 }
 
 // Trace a click, and return ObjId
@@ -269,12 +271,12 @@ Gump *GameMapGump::onMouseDown(int button, int32 mx, int32 my) {
 	GumpToScreenSpace(sx, sy);
 
 	AvatarMoverProcess *amp = Ultima8Engine::get_instance()->getAvatarMoverProcess();
-	if (button == Shared::BUTTON_RIGHT || button == Shared::BUTTON_LEFT) {
+	if (button == Mouse::BUTTON_RIGHT || button == Mouse::BUTTON_LEFT) {
 		amp->onMouseDown(button, sx, sy);
 	}
 
-	if (button == Shared::BUTTON_LEFT || button == Shared::BUTTON_RIGHT ||
-	        button == Shared::BUTTON_MIDDLE) {
+	if (button == Mouse::BUTTON_LEFT || button == Mouse::BUTTON_RIGHT ||
+	        button == Mouse::BUTTON_MIDDLE) {
 		// we take all clicks
 		return this;
 	}
@@ -284,7 +286,7 @@ Gump *GameMapGump::onMouseDown(int button, int32 mx, int32 my) {
 
 void GameMapGump::onMouseUp(int button, int32 mx, int32 my) {
 	AvatarMoverProcess *amp = Ultima8Engine::get_instance()->getAvatarMoverProcess();
-	if (button == Shared::BUTTON_RIGHT || button == Shared::BUTTON_LEFT) {
+	if (button == Mouse::BUTTON_RIGHT || button == Mouse::BUTTON_LEFT) {
 		amp->onMouseUp(button);
 	}
 }
@@ -292,61 +294,41 @@ void GameMapGump::onMouseUp(int button, int32 mx, int32 my) {
 void GameMapGump::onMouseClick(int button, int32 mx, int32 my) {
 	MainActor *avatar = getMainActor();
 	switch (button) {
-	case Shared::BUTTON_LEFT: {
+	case Mouse::BUTTON_LEFT: {
 		if (avatar->isInCombat()) break;
 
-		if (Mouse::get_instance()->isMouseDownEvent(Shared::BUTTON_RIGHT)) break;
+		if (Mouse::get_instance()->isMouseDownEvent(Mouse::BUTTON_RIGHT)) break;
 
 		uint16 objID = TraceObjId(mx, my);
 		Item *item = getItem(objID);
 		if (item) {
 			int32 xv, yv, zv;
 			item->getLocation(xv, yv, zv);
-			item->dumpInfo();
+			debugC(kDebugObject, "%s", item->dumpInfo().c_str());
 
 			if (Ultima8Engine::get_instance()->isAvatarInStasis()) {
-				pout << "Can't look: avatarInStasis" << Std::endl;
+				debugC(kDebugObject, "Can't look: avatarInStasis");
 			} else {
 				item->callUsecodeEvent_look();
 			}
 		}
 		break;
 	}
-	case Shared::BUTTON_MIDDLE: {
+	case Mouse::BUTTON_MIDDLE: {
 		uint16 objID = TraceObjId(mx, my);
 		Item *item = getItem(objID);
 		if (item) {
 			int32 xv, yv, zv;
 			item->getLocation(xv, yv, zv);
-			item->dumpInfo();
+			debugC(kDebugObject, "%s", item->dumpInfo().c_str());
 
-#if 1
-			Actor *avatarControlled = getControlledActor();
-			PathfinderProcess *pfp = new PathfinderProcess(avatarControlled, xv, yv, zv);
-			Kernel::get_instance()->addProcess(pfp);
-#elif 0
-			if (dynamic_cast<Actor *>(item)) {
-				dynamic_cast<Actor *>(item)->die(0);
+			if (Ultima8Engine::get_instance()->isAvatarInStasis()) {
+				debugC(kDebugObject, "Can't move: avatarInStasis");
 			} else {
-				item->destroy();
+				Actor *avatarControlled = getControlledActor();
+				PathfinderProcess *pfp = new PathfinderProcess(avatarControlled, xv, yv, zv);
+				Kernel::get_instance()->addProcess(pfp);
 			}
-#elif 0
-			UCList uclist(2);
-			LOOPSCRIPT(script, LS_TOKEN_TRUE); // we want all items
-			World *world = World::get_instance();
-			world->getCurrentMap()->surfaceSearch(&uclist, script,
-			                                      sizeof(script),
-			                                      item, true, false, true);
-			for (uint32 i = 0; i < uclist.getSize(); i++) {
-				Item *item2 = getItem(uclist.getuint16(i));
-				if (!item2) continue;
-				item2->setExtFlag(Item::EXT_HIGHLIGHT);
-			}
-#elif 0
-			item->receiveHit(1, 0, 1024, 0);
-#elif 0
-			item->clearFlag(Item::FLG_HANGING);
-#endif
 		}
 	}
 	default:
@@ -357,17 +339,17 @@ void GameMapGump::onMouseClick(int button, int32 mx, int32 my) {
 void GameMapGump::onMouseDouble(int button, int32 mx, int32 my) {
 	MainActor *avatar = getMainActor();
 	switch (button) {
-	case Shared::BUTTON_LEFT: {
+	case Mouse::BUTTON_LEFT: {
 		if (avatar->isInCombat()) break;
 
-		if (Mouse::get_instance()->isMouseDownEvent(Shared::BUTTON_RIGHT)) break;
+		if (Mouse::get_instance()->isMouseDownEvent(Mouse::BUTTON_RIGHT)) break;
 
 		uint16 objID = TraceObjId(mx, my);
 		Item *item = getItem(objID);
 		if (item) {
 			int32 xv, yv, zv;
 			item->getLocation(xv, yv, zv);
-			item->dumpInfo();
+			debugC(kDebugObject, "%s", item->dumpInfo().c_str());
 
 			int range = 128; // CONSTANT!
 			if (GAME_IS_CRUSADER) {
@@ -375,7 +357,7 @@ void GameMapGump::onMouseDouble(int button, int32 mx, int32 my) {
 			}
 
 			if (Ultima8Engine::get_instance()->isAvatarInStasis()) {
-				pout << "Can't use: avatarInStasis" << Std::endl;
+				debugC(kDebugObject, "Can't use: avatarInStasis");
 				break;
 			}
 
@@ -496,7 +478,7 @@ void GameMapGump::DropItem(Item *item, int mx, int my) {
 		ObjId bp = avatar->getEquip(7); // !! constant
 		Container *backpack = getContainer(bp);
 		if (backpack && item->moveToContainer(backpack)) {
-			pout << "Dropped item in backpack" << Std::endl;
+			debugC(kDebugObject, "Dropped item in backpack");
 			item->randomGumpLocation();
 			return;
 		}
@@ -505,8 +487,8 @@ void GameMapGump::DropItem(Item *item, int mx, int my) {
 	if (!avatar->canReach(item, 128, // CONSTANT!
 	                      _draggingPos[0], _draggingPos[1], _draggingPos[2])) {
 		// can't reach, so throw
-		pout << "Throwing item to (" << _draggingPos[0] << ","
-		     << _draggingPos[1] << "," << _draggingPos[2] << ")" << Std::endl;
+		debugC(kDebugObject, "Throwing item to (%d, %d, %d)",
+			   _draggingPos[0], _draggingPos[1], _draggingPos[2]);
 		int speed = 64 - item->getTotalWeight() + avatar->getStr();
 		if (speed < 1) speed = 1;
 		int32 ax, ay, az;
@@ -518,9 +500,12 @@ void GameMapGump::DropItem(Item *item, int mx, int my) {
 		tx = _draggingPos[0];
 		ty = _draggingPos[1];
 		int inaccuracy = 4 * (30 - avatar->getDex());
-		if (inaccuracy < 20) inaccuracy = 20; // just in case dex > 25
-		tx += (getRandom() % inaccuracy) - (getRandom() % inaccuracy);
-		ty += (getRandom() % inaccuracy) - (getRandom() % inaccuracy);
+		if (inaccuracy < 20)
+			inaccuracy = 20; // just in case dex > 25
+
+		Common::RandomSource &rs = Ultima8Engine::get_instance()->getRandomSource();
+		tx += rs.getRandomNumberRngSigned(-inaccuracy, inaccuracy);
+		ty += rs.getRandomNumberRngSigned(-inaccuracy, inaccuracy);
 		MissileTracker t(item, tx, ty, _draggingPos[2],
 		                 speed, 4);
 		t.launchItem();
@@ -533,8 +518,8 @@ void GameMapGump::DropItem(Item *item, int mx, int my) {
 		                                  _draggingPos[0] - ax));
 #endif
 	} else {
-		pout << "Dropping item at (" << _draggingPos[0] << ","
-		     << _draggingPos[1] << "," << _draggingPos[2] << ")" << Std::endl;
+		debugC(kDebugObject, "Dropping item at (%d, %d, %d)",
+			   _draggingPos[0], _draggingPos[1], _draggingPos[2]);
 
 		// CHECKME: collideMove and grab (in StopDraggingItem)
 		// both call release on supporting items.

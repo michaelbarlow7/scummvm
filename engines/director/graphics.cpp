@@ -35,15 +35,11 @@ namespace Director {
 #include "director/graphics-data.h"
 
 /**
- * The sprites colors are in reverse order with respect to the ids in director.
- * The palette is in reverse order, this eases the code for loading files.
- * All other color ids can be converted with: 255 - colorId.
+ * Used to upgrade to 32-bit color if required.
  **/
 uint32 DirectorEngine::transformColor(uint32 color) {
 	if (_pixelformat.bytesPerPixel == 1)
-		return 255 - color;
-
-	color = 255 - color;
+		return color;
 
 	return _wm->findBestColor(_currentPalette[color * 3], _currentPalette[color * 3 + 1], _currentPalette[color * 3 + 2]);
 }
@@ -117,6 +113,17 @@ void DirectorEngine::loadDefaultPalettes() {
 	_loadedPalettes[kClutNTSC] = PaletteV4(kClutNTSC, ntscPalette, 256);
 	_loadedPalettes[kClutMetallic] = PaletteV4(kClutMetallic, metallicPalette, 256);
 	_loadedPalettes[kClutSystemWin] = PaletteV4(kClutSystemWin, winPalette, 256);
+
+	_loaded16Palettes[kClutSystemMac] = PaletteV4(kClutSystemMac, mac16Palette, 16);
+	_loaded16Palettes[kClutRainbow] = PaletteV4(kClutRainbow, rainbow16Palette, 16);
+	_loaded16Palettes[kClutGrayscale] = PaletteV4(kClutGrayscale, grayscale16Palette, 16);
+	_loaded16Palettes[kClutPastels] = PaletteV4(kClutPastels, pastels16Palette, 16);
+	_loaded16Palettes[kClutVivid] = PaletteV4(kClutVivid, vivid16Palette, 16);
+	_loaded16Palettes[kClutNTSC] = PaletteV4(kClutNTSC, ntsc16Palette, 16);
+	_loaded16Palettes[kClutMetallic] = PaletteV4(kClutMetallic, metallic16Palette, 16);
+	_loaded16Palettes[kClutSystemWin] = PaletteV4(kClutSystemWin, win16Palette, 16);
+
+	_loaded4Palette = PaletteV4(kClutGrayscale, grayscale4Palette, 4);
 }
 
 PaletteV4 *DirectorEngine::getPalette(int id) {
@@ -171,24 +178,23 @@ void DirectorEngine::shiftPalette(int startIndex, int endIndex, bool reverse) {
 	if (startIndex == endIndex)
 		return;
 
-	if (endIndex > startIndex)
+	if (startIndex > endIndex)
 		return;
 
-	// Palette indexes are in reverse order thanks to transformColor
 	byte temp[3] = { 0, 0, 0 };
-	int span = startIndex - endIndex + 1;
+	int span = endIndex - startIndex + 1;
 	if (reverse) {
-		memcpy(temp, _currentPalette + 3 * endIndex, 3);
-		memmove(_currentPalette + 3 * endIndex,
-			_currentPalette + 3 * endIndex + 3,
-			(span - 1) * 3);
-		memcpy(_currentPalette + 3 * startIndex, temp, 3);
-	} else {
 		memcpy(temp, _currentPalette + 3 * startIndex, 3);
-		memmove(_currentPalette + 3 * endIndex + 3,
-			_currentPalette + 3 * endIndex,
+		memmove(_currentPalette + 3 * startIndex,
+			_currentPalette + 3 * startIndex + 3,
 			(span - 1) * 3);
 		memcpy(_currentPalette + 3 * endIndex, temp, 3);
+	} else {
+		memcpy(temp, _currentPalette + 3 * endIndex, 3);
+		memmove(_currentPalette + 3 * startIndex + 3,
+			_currentPalette + 3 * startIndex,
+			(span - 1) * 3);
+		memcpy(_currentPalette + 3 * startIndex, temp, 3);
 	}
 
 	// Pass the palette to OSystem only for 8bpp mode
@@ -288,7 +294,13 @@ void inkDrawPixel(int x, int y, int src, void *data) {
 
  	switch (p->ink) {
 	case kInkTypeBackgndTrans:
-		*dst = (src == (int)p->backColor) ? *dst : src;
+		if (p->oneBitImage) {
+			// One-bit images have a slightly different rendering algorithm for BackgndTrans.
+			// Foreground colour is used, and background colour is ignored.
+			*dst = (src == (int)p->colorBlack) ? p->foreColor : *dst;
+		} else {
+			*dst = (src == (int)p->backColor) ? *dst : src;
+		}
 		break;
 	case kInkTypeMatte:
 		// fall through
@@ -297,7 +309,7 @@ void inkDrawPixel(int x, int y, int src, void *data) {
 	case kInkTypeCopy: {
 		if (p->applyColor) {
 			if (sizeof(T) == 1) {
-				*dst = src == 0x00 ? p->foreColor : (src == 0xff ? p->backColor : *dst);
+				*dst = src == 0xff ? p->foreColor : (src == 0x00 ? p->backColor : *dst);
 			} else {
 				// TODO: Improve the efficiency of this composition
 				byte rSrc, gSrc, bSrc;
@@ -322,7 +334,7 @@ void inkDrawPixel(int x, int y, int src, void *data) {
 	case kInkTypeNotCopy:
 		if (p->applyColor) {
 			if (sizeof(T) == 1) {
-				*dst = src == 0x00 ? p->backColor : (src == 0xff ? p->foreColor : src);
+				*dst = src == 0xff ? p->backColor : (src == 0x00 ? p->foreColor : src);
 			} else {
 				// TODO: Improve the efficiency of this composition
 				byte rSrc, gSrc, bSrc;
@@ -340,26 +352,30 @@ void inkDrawPixel(int x, int y, int src, void *data) {
 										(~bSrc | bFor) & (bSrc | bBak));
 			}
 		} else {
-			*dst = src;
+			// Find the inverse of the colour and match it back to the palette if required
+			byte rSrc, gSrc, bSrc;
+			wm->decomposeColor<T>(src, rSrc, gSrc, bSrc);
+
+			*dst = wm->findBestColor(~rSrc, ~gSrc, ~bSrc);
 		}
 		break;
 	case kInkTypeTransparent:
-		*dst = p->applyColor ? (~src & p->foreColor) | (*dst & src) : (*dst & src);
+		*dst = p->applyColor ? (~src | p->backColor) & (*dst | src) : *dst | src;
 		break;
 	case kInkTypeNotTrans:
-		*dst = p->applyColor ? (src & p->foreColor) | (*dst & ~src) : (*dst & ~src);
-		break;
-	case kInkTypeReverse:
-		*dst ^= ~(src);
-		break;
-	case kInkTypeNotReverse:
-		*dst ^= src;
-		break;
-	case kInkTypeGhost:
 		*dst = p->applyColor ? (src | p->backColor) & (*dst | ~src) : (*dst | ~src);
 		break;
+	case kInkTypeReverse:
+		*dst ^= src;
+		break;
+	case kInkTypeNotReverse:
+		*dst ^= ~(src);
+		break;
+	case kInkTypeGhost:
+		*dst = p->applyColor ? (src & p->foreColor) | (*dst & ~src) : (*dst & ~src);
+		break;
 	case kInkTypeNotGhost:
-		*dst = p->applyColor ? (~src | p->backColor) & (*dst | src) : *dst | src;
+		*dst = p->applyColor ? (~src & p->foreColor) | (*dst & src) : (*dst & src);
 		break;
 		// Arithmetic ink types
 	default: {
@@ -565,6 +581,9 @@ void DirectorPlotData::inkBlitSurface(Common::Rect &srcRect, const Graphics::Sur
 	if (sprite == kTextSprite)
 		applyColor = false;
 
+	Common::Rect srfClip = srf->getBounds();
+	bool failedBoundsCheck = false;
+
 	srcPoint.y = abs(srcRect.top - destRect.top);
 	for (int i = 0; i < destRect.height(); i++, srcPoint.y++) {
 		if (d->_wm->_pixelformat.bytesPerPixel == 1) {
@@ -572,6 +591,11 @@ void DirectorPlotData::inkBlitSurface(Common::Rect &srcRect, const Graphics::Sur
 			const byte *msk = mask ? (const byte *)mask->getBasePtr(srcPoint.x, srcPoint.y) : nullptr;
 
 			for (int j = 0; j < destRect.width(); j++, srcPoint.x++) {
+				if (!srfClip.contains(srcPoint)) {
+					failedBoundsCheck = true;
+					continue;
+				}
+
 				if (!mask || (msk && !(*msk++))) {
 					(d->getInkDrawPixel())(destRect.left + j, destRect.top + i,
 											preprocessColor(*((byte *)srf->getBasePtr(srcPoint.x, srcPoint.y))), this);
@@ -582,6 +606,11 @@ void DirectorPlotData::inkBlitSurface(Common::Rect &srcRect, const Graphics::Sur
 			const uint32 *msk = mask ? (const uint32 *)mask->getBasePtr(srcPoint.x, srcPoint.y) : nullptr;
 
 			for (int j = 0; j < destRect.width(); j++, srcPoint.x++) {
+				if (!srfClip.contains(srcPoint)) {
+					failedBoundsCheck = true;
+					continue;
+				}
+
 				if (!mask || (msk && !(*msk++))) {
 					(d->getInkDrawPixel())(destRect.left + j, destRect.top + i,
 											preprocessColor(*((uint32 *)srf->getBasePtr(srcPoint.x, srcPoint.y))), this);
@@ -589,6 +618,14 @@ void DirectorPlotData::inkBlitSurface(Common::Rect &srcRect, const Graphics::Sur
 			}
 		}
 	}
+
+	if (failedBoundsCheck) {
+		warning("DirectorPlotData::inkBlitSurface: Out of bounds - srfClip: %d,%d,%d,%d, srcRect: %d,%d,%d,%d, dstRect: %d,%d,%d,%d",
+				srfClip.left, srfClip.top, srfClip.right, srfClip.bottom,
+				srcRect.left, srcRect.top, srcRect.right, srcRect.bottom,
+				destRect.left, destRect.top, destRect.right, destRect.bottom);
+	}
+
 }
 
 void DirectorPlotData::inkBlitStretchSurface(Common::Rect &srcRect, const Graphics::Surface *mask) {

@@ -34,6 +34,7 @@
 #include "common/config-manager.h"
 #include "common/savefile.h"
 #include "common/translation.h"
+#include "gui/message.h"
 
 namespace Ultima {
 namespace Ultima8 {
@@ -170,7 +171,7 @@ Gump *U8SaveGump::onMouseDown(int button, int32 mx, int32 my) {
 
 
 void U8SaveGump::onMouseClick(int button, int32 mx, int32 my) {
-	if (button != Shared::BUTTON_LEFT) return;
+	if (button != Mouse::BUTTON_LEFT) return;
 
 	ParentToGump(mx, my);
 
@@ -258,24 +259,30 @@ bool U8SaveGump::OnKeyDown(int key, int mod) {
 
 bool U8SaveGump::loadgame(int saveIndex) {
 	if (saveIndex == 1) {
-		Ultima8Engine::get_instance()->newGame();
-		return true;
-	} else {
-		return Ultima8Engine::get_instance()->loadGameState(saveIndex).getCode() == Common::kNoError;
+		return Ultima8Engine::get_instance()->newGame();
 	}
+
+	Common::Error loadError = Ultima8Engine::get_instance()->loadGameState(saveIndex);
+	if (loadError.getCode() != Common::kNoError) {
+		GUI::MessageDialog errorDialog(loadError.getDesc());
+		errorDialog.runModal();
+		return false;
+	}
+	return true;
 }
 
 bool U8SaveGump::savegame(int saveIndex, const Std::string &name) {
-	pout << "Save " << saveIndex << ": \"" << name << "\"" << Std::endl;
-
-	if (name.empty()) return false;
+	if (name.empty())
+		return false;
 
 	// We are saving, close parent (and ourselves) first so it doesn't
 	// block the save or appear in the screenshot
 	_parent->Close();
 
-	Ultima8Engine::get_instance()->saveGame(saveIndex, name);
-	return true;
+	if (!Ultima8Engine::get_instance()->canSaveGameStateCurrently())
+		return false;
+
+	return Ultima8Engine::get_instance()->saveGameState(saveIndex, name).getCode() == Common::kNoError;
 }
 
 void U8SaveGump::loadDescriptions() {
@@ -290,27 +297,7 @@ void U8SaveGump::loadDescriptions() {
 			continue;
 
 		const SavegameReader *sg = new SavegameReader(saveFile, true);
-		SavegameReader::State state = sg->isValid();
-		_descriptions[i] = "";
-
-		// FIXME: move version checks elsewhere!!
-		switch (state) {
-		case SavegameReader::SAVE_CORRUPT:
-			_descriptions[i] = Common::convertFromU32String(_("[corrupt]"));
-			break;
-		case SavegameReader::SAVE_OUT_OF_DATE:
-			_descriptions[i] = Common::convertFromU32String(_("[outdated]"));
-			break;
-		case SavegameReader::SAVE_TOO_RECENT:
-			_descriptions[i] = Common::convertFromU32String(_("[too modern]"));
-			break;
-		default:
-			break;
-		}
-
-		if (state != SavegameReader::SAVE_VALID)
-			_descriptions[i] += " ";
-		_descriptions[i] += sg->getDescription();
+		_descriptions[i] = sg->getDescription();
 		delete sg;
 	}
 }
@@ -325,7 +312,7 @@ Gump *U8SaveGump::showLoadSaveGump(Gump *parent, bool save) {
 		return nullptr;
 	}
 
-	if (save && !Ultima8Engine::get_instance()->canSaveGameStateCurrently(false)) {
+	if (save && !Ultima8Engine::get_instance()->canSaveGameStateCurrently()) {
 		return nullptr;
 	}
 

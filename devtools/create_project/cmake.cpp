@@ -29,8 +29,8 @@
 
 namespace CreateProjectTool {
 
-CMakeProvider::CMakeProvider(StringList &global_warnings, std::map<std::string, StringList> &project_warnings, const int version)
-	: ProjectProvider(global_warnings, project_warnings, version) {
+CMakeProvider::CMakeProvider(StringList &global_warnings, std::map<std::string, StringList> &project_warnings, StringList &global_errors, const int version)
+	: ProjectProvider(global_warnings, project_warnings, global_errors, version) {
 }
 
 const CMakeProvider::Library *CMakeProvider::getLibraryFromFeature(const char *feature, bool useSDL2) const {
@@ -192,35 +192,25 @@ void CMakeProvider::writeFeatureLibSearch(const BuildSetup &setup, std::ofstream
 	if (library) {
 		workspace << "find_feature(";
 		workspace << "name " << library->feature;
-		workspace << " pkgconfig_name ";
 		if (library->pkgConfig) {
+			workspace << " pkgconfig_name ";
 			workspace << library->pkgConfig;
-		} else {
-			workspace << "IGNORE";
 		}
-		workspace << " findpackage_name ";
 		if (library->package) {
+			workspace << " findpackage_name ";
 			workspace << library->package;
-		} else {
-			workspace << "IGNORE";
 		}
-		workspace << " include_dirs_var ";
 		if (library->includesVar) {
+			workspace << " include_dirs_var ";
 			workspace << library->includesVar;
-		} else {
-			workspace << "IGNORE";
 		}
-		workspace << " libraries_var ";
 		if (library->librariesVar) {
+			workspace << " libraries_var ";
 			workspace << library->librariesVar;
-		} else {
-			workspace << "IGNORE";
 		}
-		workspace << " libraries ";
 		if (library->libraries) {
+			workspace << " libraries ";
 			workspace << library->libraries;
-		} else {
-			workspace << "IGNORE";
 		}
 		workspace << ")\n";
 	}
@@ -330,6 +320,9 @@ void CMakeProvider::writeWarnings(std::ofstream &output) const {
 		output << ' ' << warning;
 	}
 	output << "\")\n";
+	output << "\tif(CMAKE_CXX_COMPILER_ID STREQUAL \"GNU\" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 12.0)\n";
+	output << "\t\tset(CMAKE_CXX_FLAGS \"${CMAKE_CXX_FLAGS} -Wno-address-of-packed-member\")\n";
+	output << "\tendif()\n";
 	output << "endif()\n";
 }
 
@@ -338,6 +331,9 @@ void CMakeProvider::writeDefines(const BuildSetup &setup, std::ofstream &output)
 	output << "\tadd_definitions(-DWIN32)\n";
 	output << "else()\n";
 	output << "\tadd_definitions(-DPOSIX)\n";
+	output << "\t# Hope for the best regarding fseeko and 64-bit off_t\n";
+	output << "\tadd_definitions(-D_FILE_OFFSET_BITS=64)\n";
+	output << "\tadd_definitions(-DHAS_FSEEKO_OFFT_64)\n";
 	output << "endif()\n";
 
 	output << "add_definitions(-DSDL_BACKEND)\n";

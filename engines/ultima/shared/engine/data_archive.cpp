@@ -23,7 +23,7 @@
 #include "common/config-manager.h"
 #include "common/file.h"
 #include "common/translation.h"
-#include "common/unzip.h"
+#include "common/compression/unzip.h"
 
 namespace Ultima {
 namespace Shared {
@@ -124,7 +124,7 @@ bool UltimaDataArchive::hasFile(const Common::Path &path) const {
 	return _zip->hasFile(realFilename);
 }
 
-int UltimaDataArchive::listMatchingMembers(Common::ArchiveMemberList &list, const Common::Path &pattern) const {
+int UltimaDataArchive::listMatchingMembers(Common::ArchiveMemberList &list, const Common::Path &pattern, bool matchPathComponents) const {
 	Common::String patt = pattern.toString();
 	if (patt.hasPrefixIgnoreCase(_publicFolder))
 		patt = innerToPublic(patt);

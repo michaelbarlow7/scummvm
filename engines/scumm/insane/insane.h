@@ -66,6 +66,9 @@ class Insane {
 	void procSKIP(int32 subSize, Common::SeekableReadStream &b);
 	void escapeKeyHandler();
 
+	bool isInsaneActive() { return _insaneIsRunning; }
+	void syncCurrentSanFlags();
+
  private:
 
 	ScummEngine_v7 *_vm;
@@ -143,7 +146,7 @@ class Insane {
 	int _iactSceneId2;
 	int _smush_setupsan17;
 	int32 _smush_setupsan1;
-	int16 _smush_setupsan2;
+	int16 _smush_curSanFlags;
 	int32 _smush_setupsan4;
 	int16 _smush_frameStep;
 	int16 _smush_curFrame;

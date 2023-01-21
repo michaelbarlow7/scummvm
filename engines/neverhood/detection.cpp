@@ -23,16 +23,11 @@
 
 #include "engines/advancedDetector.h"
 #include "common/file.h"
-#include "common/translation.h"
 
 #include "neverhood/detection.h"
 
-#define GAMEOPTION_ORIGINAL_SAVELOAD      GUIO_GAMEOPTIONS1
-#define GAMEOPTION_SKIP_HALL_OF_RECORDS   GUIO_GAMEOPTIONS2
-#define GAMEOPTION_SCALE_MAKING_OF_VIDEOS GUIO_GAMEOPTIONS3
-
 static const PlainGameDescriptor neverhoodGames[] = {
-	{"neverhood", "The Neverhood Chronicles"},
+	{"neverhood", "The Neverhood"},
 	{nullptr, nullptr}
 };
 
@@ -121,52 +116,15 @@ static const ADGameDescription gameDescriptions[] = {
 	// Bugreport #11074
 	{
 		"neverhood",
-		_s("Missing game code"), // Reason for being unsupported
+		"",
 		AD_ENTRY1s("hd.blb", "c791725bbbc23c0f8bf78eece4555565", 4308928),
 		Common::JA_JPN,
 		Common::kPlatformWindows,
-		ADGF_DROPPLATFORM | ADGF_UNSUPPORTED,
+		ADGF_DROPPLATFORM,
 		GUIO1(GUIO_NONE)
 	},
 
 	AD_TABLE_END_MARKER
-};
-
-static const ADExtraGuiOptionsMap optionsList[] = {
-	{
-		GAMEOPTION_ORIGINAL_SAVELOAD,
-		{
-			_s("Use original save/load screens"),
-			_s("Use the original save/load screens instead of the ScummVM ones"),
-			"originalsaveload",
-			false,
-			0,
-			0
-		}
-	},
-	{
-		GAMEOPTION_SKIP_HALL_OF_RECORDS,
-		{
-			_s("Skip the Hall of Records storyboard scenes"),
-			_s("Allows the player to skip past the Hall of Records storyboard scenes"),
-			"skiphallofrecordsscenes",
-			false,
-			0,
-			0
-		}
-	},
-	{
-		GAMEOPTION_SCALE_MAKING_OF_VIDEOS,
-		{
-			_s("Scale the making of videos to full screen"),
-			_s("Scale the making of videos, so that they use the whole screen"),
-			"scalemakingofvideos",
-			false,
-			0,
-			0
-		}
-	},
-	AD_EXTRA_GUI_OPTIONS_TERMINATOR
 };
 
 } // End of namespace Neverhood
@@ -174,8 +132,38 @@ static const ADExtraGuiOptionsMap optionsList[] = {
 
 class NeverhoodMetaEngineDetection : public AdvancedMetaEngineDetection {
 public:
-	NeverhoodMetaEngineDetection() : AdvancedMetaEngineDetection(Neverhood::gameDescriptions, sizeof(ADGameDescription), neverhoodGames, Neverhood::optionsList) {
-		_guiOptions = GUIO5(GUIO_NOSUBTITLES, GUIO_NOMIDI, GAMEOPTION_ORIGINAL_SAVELOAD, GAMEOPTION_SKIP_HALL_OF_RECORDS, GAMEOPTION_SCALE_MAKING_OF_VIDEOS);
+	NeverhoodMetaEngineDetection() : AdvancedMetaEngineDetection(Neverhood::gameDescriptions, sizeof(ADGameDescription), neverhoodGames) {
+		_guiOptions = GUIO5(GUIO_NOMIDI, GAMEOPTION_ORIGINAL_SAVELOAD, GAMEOPTION_SKIP_HALL_OF_RECORDS,
+				    GAMEOPTION_SCALE_MAKING_OF_VIDEOS, GAMEOPTION_REPEAT_WILLIE_HINT);
+	}
+
+	DetectedGames detectGames(const Common::FSList &fslist, uint32 skipADFlags, bool skipIncomplete) override {
+		DetectedGames detGames(AdvancedMetaEngineDetection::detectGames(fslist, skipADFlags, skipIncomplete));
+		bool hasSubs = false;
+
+		if (detGames.empty())
+			return detGames;
+
+		for (Common::FSList::const_iterator dr = fslist.begin(); dr != fslist.end() && !hasSubs; dr++) {
+			if (dr->getName().equalsIgnoreCase("language") && dr->isDirectory()) {
+				Common::FSList files;
+				if (!dr->getChildren(files, Common::FSNode::kListAll))
+					continue;
+				for (Common::FSList::const_iterator file = files.begin(); file != files.end(); file++) {
+					Common::String fname = file->getName();
+					if (fname.matchString("*.nhc", true) && !fname.equalsIgnoreCase("Fargusfx.nhc")) {
+						hasSubs = true;
+						break;
+					}
+				}
+			}
+		}
+		if (hasSubs)
+			return detGames;
+		for (DetectedGames::iterator it = detGames.begin(); it != detGames.end(); it++) {
+			it->appendGUIOptions("sndNoSubs");
+		}
+		return detGames;
 	}
 
 	const char *getName() const override {
@@ -183,11 +171,11 @@ public:
 	}
 
 	const char *getEngineName() const override {
-		return "The Neverhood Chronicles";
+		return "The Neverhood";
 	}
 
 	const char *getOriginalCopyright() const override {
-		return "The Neverhood Chronicles (C) The Neverhood, Inc.";
+		return "The Neverhood (C) The Neverhood, Inc.";
 	}
 };
 

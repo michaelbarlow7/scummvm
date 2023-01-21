@@ -28,6 +28,8 @@
 
 #include "graphics/pixelformat.h"
 
+#include "actions.h"
+
 namespace Graphics {
 
 class ManagedSurface;
@@ -106,6 +108,9 @@ public:
 	const Common::SharedPtr<CursorGraphic> &getCursorGraphic() const;
 	void setCursorGraphic(const Common::SharedPtr<CursorGraphic> &cursor);
 
+	bool getMouseVisible() const;
+	void setMouseVisible(bool visible);
+
 	void setStrata(int strata);
 	int getStrata() const;
 
@@ -120,6 +125,7 @@ public:
 	virtual void onMouseMove(int32 x, int32 y);
 	virtual void onMouseUp(int32 x, int32 y, int mouseButton);
 	virtual void onKeyboardEvent(const Common::EventType evtType, bool repeat, const Common::KeyState &keyEvt);
+	virtual void onAction(Actions::Action action);
 
 protected:
 	int32 _x;
@@ -127,6 +133,7 @@ protected:
 	Runtime *_runtime;
 	int _strata;
 	bool _isMouseTransparent;
+	bool _isMouseVisible;
 
 	Common::SharedPtr<Graphics::ManagedSurface> _surface;
 	Common::SharedPtr<CursorGraphic> _cursor;

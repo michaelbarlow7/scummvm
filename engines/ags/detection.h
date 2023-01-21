@@ -35,7 +35,8 @@ enum AGSDebugChannels {
 };
 
 enum GameFlag {
-	GAMEFLAG_FORCE_AA = 1
+	GAMEFLAG_FORCE_AA = 1,
+	GAMEFLAG_INSTALLER = 2,
 };
 
 struct PluginVersion {
@@ -46,6 +47,7 @@ struct PluginVersion {
 struct AGSGameDescription {
 	ADGameDescription desc;
 	const PluginVersion *_plugins;
+	const char *_mainNameInsideInstaller;
 };
 
 extern const PlainGameDescriptor GAME_NAMES[];
@@ -89,10 +91,6 @@ public:
 	DetectedGames detectGames(const Common::FSList &fslist, uint32 skipADFlags, bool skipIncomplete) override;
 
 	ADDetectedGame fallbackDetect(const FileMap &allFiles, const Common::FSList &fslist, ADDetectedGameExtraInfo **extra = nullptr) const override;
-
-	bool canPlayUnknownVariants() const override {
-		return true;
-	}
 };
 
 #endif

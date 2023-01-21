@@ -25,7 +25,7 @@
 
 namespace Scumm {
 
-Player_Towns::Player_Towns(ScummEngine *vm, bool isVersion2) : _vm(vm), _v2(isVersion2), _intf(nullptr), _numSoundMax(isVersion2 ? 256 : 200), _unkFlags(0x33) {
+Player_Towns::Player_Towns(ScummEngine *vm, bool isVersion2) : _vm(vm), _v2(isVersion2), _numSoundMax(isVersion2 ? 256 : 200) {
 	memset(_pcmCurrentSound, 0, sizeof(_pcmCurrentSound));
 }
 
@@ -187,14 +187,6 @@ int Player_Towns::allocatePcmChannel(int sound, int sfxChanRelIndex, uint32 prio
 }
 
 Player_Towns_v1::Player_Towns_v1(ScummEngine *vm, Audio::Mixer *mixer) : Player_Towns(vm, false) {
-	_soundOverride = nullptr;
-	_cdaCurrentSound = _cdaCurrentSoundTemp = _eupCurrentSound = _cdaNumLoops = 0;
-	_cdaForceRestart = 0;
-	_cdaVolLeft = _cdaVolRight = 0;
-
-	_eupVolLeft = _eupVolRight = 0;
-	_eupLooping = false;
-
 	if (_vm->_game.version == 3) {
 		_soundOverride = new SoundOvrParameters[_numSoundMax]();
 	}
@@ -253,7 +245,7 @@ void Player_Towns_v1::startSound(int sound) {
 		velocity = velocity ? velocity >> 2 : ptr[14] >> 1;
 		uint16 len = READ_LE_UINT16(ptr) + 2;
 		playPcmTrack(sound, ptr + 6, velocity, 64, note ? note : (len > 50 ? ptr[50] : 60), READ_LE_UINT16(ptr + 10));
-	} else if (type == 1 || (_vm->_game.id == GID_INDY3 && sound == 40)) {
+	} else if (type == 1 || (_vm->_game.id == GID_INDY3 && sound == 40 && _vm->_enableEnhancements)) {
 		// WORKAROUND: Indy 3 FMTOWNS: No/distorted music in Venice
 		// The Venice music does not exist as CD audio and the original doesn't feature music
 		// in this scene. It does, however, exist as Euphony track albeit with an odd sound
@@ -581,7 +573,8 @@ void Player_Towns_v1::playCdaTrack(int sound, const uint8 *data, bool skipTrackV
 	_cdaCurrentSound = sound;
 }
 
-Player_Towns_v2::Player_Towns_v2(ScummEngine *vm, Audio::Mixer *mixer, IMuse *imuse, bool disposeIMuse) : Player_Towns(vm, true), _imuse(imuse), _imuseDispose(disposeIMuse), _sblData(nullptr) {
+Player_Towns_v2::Player_Towns_v2(ScummEngine *vm, Audio::Mixer *mixer, IMuse *imuse, bool disposeIMuse)
+	: Player_Towns(vm, true), _imuse(imuse), _imuseDispose(disposeIMuse) {
 	_soundOverride = new SoundOvrParameters[_numSoundMax]();
 	_intf = new TownsAudioInterface(mixer, nullptr, true);
 }

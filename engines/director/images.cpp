@@ -52,20 +52,20 @@ void DIBDecoder::destroy() {
 
 void DIBDecoder::loadPalette(Common::SeekableReadStream &stream) {
 	uint16 steps = stream.size() / 6;
-	uint16 index = (steps * 3) - 1;
+	uint16 index = 0;
 	_paletteColorCount = steps;
-	_palette = new byte[index + 1];
+	_palette = new byte[steps * 3];
 
 	for (uint8 i = 0; i < steps; i++) {
-		_palette[index - 2] = stream.readByte();
-		stream.readByte();
-
-		_palette[index - 1] = stream.readByte();
-		stream.readByte();
-
 		_palette[index] = stream.readByte();
 		stream.readByte();
-		index -= 3;
+
+		_palette[index + 1] = stream.readByte();
+		stream.readByte();
+
+		_palette[index + 2] = stream.readByte();
+		stream.readByte();
+		index += 3;
 	}
 }
 
@@ -74,14 +74,17 @@ bool DIBDecoder::loadStream(Common::SeekableReadStream &stream) {
 	if (headerSize != 40)
 		return false;
 
-	uint32 width = stream.readUint32LE();
-	uint32 height = stream.readUint32LE();
+	int32 width = stream.readSint32LE();
+	int32 height = stream.readSint32LE();
+	if (height < 0) {
+		warning("BUILDBOT: height < 0 for DIB");
+	}
 	stream.readUint16LE(); // planes
 	uint16 bitsPerPixel = stream.readUint16LE();
 	uint32 compression = stream.readUint32BE();
 	/* uint32 imageSize = */ stream.readUint32LE();
-	/* uint32 pixelsPerMeterX = */ stream.readUint32LE();
-	/* uint32 pixelsPerMeterY = */ stream.readUint32LE();
+	/* int32 pixelsPerMeterX = */ stream.readSint32LE();
+	/* int32 pixelsPerMeterY = */ stream.readSint32LE();
 	_paletteColorCount = stream.readUint32LE();
 	/* uint32 colorsImportant = */ stream.readUint32LE();
 
@@ -96,6 +99,17 @@ bool DIBDecoder::loadStream(Common::SeekableReadStream &stream) {
 
 	_surface = _codec->decodeFrame(subStream);
 
+	// For some reason, DIB cast members have the palette indexes reversed
+	if (bitsPerPixel == 8) {
+		for (int y = 0; y < _surface->h; y++) {
+			for (int x = 0; x < _surface->w; x++) {
+				// We're not su[pposed to modify the image that is coming from the decoder
+				// However, in this case, we know what we're doing.
+				*Common::remove_const<byte *>::type(_surface->getBasePtr(x, y)) = 255 - *(const byte *)_surface->getBasePtr(x, y);
+			}
+		}
+	}
+
 	return true;
 }
 
@@ -108,15 +122,14 @@ BITDDecoder::BITDDecoder(int w, int h, uint16 bitsPerPixel, uint16 pitch, const 
 	_pitch = pitch;
 	_version = version;
 
-	if (_pitch < w) {
-		warning("BITDDecoder: pitch is too small: %d < %d", _pitch, w);
+	int minPitch = ((w * bitsPerPixel) >> 3) + ((w * bitsPerPixel % 8) ? 1 : 0);
+	if (_pitch < minPitch) {
+		warning("BITDDecoder: pitch is too small (%d < %d), graphics will decode wrong", _pitch, minPitch);
 
-		_pitch = w;
+		_pitch = minPitch;
 	}
 
-	// HACK: Create a padded surface by adjusting w after create()
-	_surface->create(_pitch, h, g_director->_pixelformat);
-	_surface->w = w;
+	_surface->create(w, h, g_director->_pixelformat);
 
 	_palette = palette;
 
@@ -162,15 +175,15 @@ bool BITDDecoder::loadStream(Common::SeekableReadStream &stream) {
 	int x = 0, y = 0;
 
 	Common::Array<uint> pixels;
-	// If the stream has exactly the required number of bits for this image,
-	// we assume it is uncompressed.
-	// logic above does not fit the situation when _bitsPerPixel == 1, need to fix.
-	int bytesNeed = _surface->w * _surface->h * _bitsPerPixel / 8;
+	// Unpacking bodges for D3 and below
 	bool skipCompression = false;
+	uint32 bytesNeed = _pitch * _surface->h;
 	if (_bitsPerPixel != 1) {
 		if (_version < kFileVer300) {
+			bytesNeed = _surface->w * _surface->h * _bitsPerPixel / 8;
 			skipCompression = stream.size() >= bytesNeed;
 		} else if (_version < kFileVer400) {
+			bytesNeed = _surface->w * _surface->h * _bitsPerPixel / 8;
 			// for D3, looks like it will round up the _surface->w to align 2
 			// not sure whether D2 will have the same logic.
 			// check lzone-mac data/r-c/tank.a-1 and lzone-mac data/r-a/station-b.01.
@@ -180,7 +193,9 @@ bool BITDDecoder::loadStream(Common::SeekableReadStream &stream) {
 		}
 	}
 
-	if ((stream.size() == _pitch * _surface->h * _bitsPerPixel / 8) || skipCompression) {
+	// If the stream has exactly the required number of bits for this image,
+	// we assume it is uncompressed.
+	if (stream.size() == bytesNeed || skipCompression) {
 		debugC(6, kDebugImages, "Skipping compression");
 		for (int i = 0; i < stream.size(); i++) {
 			pixels.push_back((int)stream.readByte());
@@ -213,13 +228,13 @@ bool BITDDecoder::loadStream(Common::SeekableReadStream &stream) {
 		}
 	}
 
-	if (pixels.size() < (uint32)_surface->w * _surface->h * (_bitsPerPixel / 8)) {
-		int tail = (_surface->w * _surface->h * _bitsPerPixel / 8) - pixels.size();
+	if (pixels.size() < bytesNeed) {
+		uint32 tail = bytesNeed - pixels.size();
 
-		warning("BITDDecoder::loadStream(): premature end of stream (%d of %d pixels)",
-				pixels.size(), pixels.size() + tail);
+		warning("BITDDecoder::loadStream(): premature end of stream (srcSize: %d, targetSize: %d, expected: %d, w: %d, h: %d, pitch: %d, bitsPerPixel: %d)",
+				(int)stream.size(), pixels.size(), pixels.size() + tail, _surface->w, _surface->h, _pitch, _bitsPerPixel);
 
-		for (int i = 0; i < tail; i++)
+		for (uint32 i = 0; i < tail; i++)
 			pixels.push_back(0);
 	}
 
@@ -240,7 +255,7 @@ bool BITDDecoder::loadStream(Common::SeekableReadStream &stream) {
 				switch (_bitsPerPixel) {
 				case 1:
 					for (int c = 0; c < 8 && x < _surface->w; c++, x++) {
-						color = (pixels[(((y * _pitch) + x) / 8)] & (1 << (7 - c))) ? 0 : 0xff;
+						color = (pixels[(y * _pitch) + (x >> 3)] & (1 << (7 - c))) ? 0xff : 0x00;
 						if (paletted) {
 							*((byte *)_surface->getBasePtr(x, y)) = color;
 						} else {
@@ -248,12 +263,32 @@ bool BITDDecoder::loadStream(Common::SeekableReadStream &stream) {
 						}
 					}
 					break;
-
+				case 2:
+					for (int c = 0; c < 4 && x < _surface->w; c++, x++) {
+						color = (pixels[(y * _pitch) + (x >> 2)] & (0x3 << (2 * (3 - c)))) >> (2 * (3 - c));
+						if (paletted) {
+							*((byte *)_surface->getBasePtr(x, y)) = color;
+						} else {
+							*((uint32 *)_surface->getBasePtr(x, y)) = g_director->transformColor(color);
+						}
+					}
+					break;
+				case 4:
+					for (int c = 0; c < 2 && x < _surface->w; c++, x++) {
+						color = (pixels[(y * _pitch) + (x >> 1)] & (0xf << (4 * (1 - c)))) >> (4 * (1 - c));
+						if (paletted) {
+							*((byte *)_surface->getBasePtr(x, y)) = color;
+						} else {
+							*((uint32 *)_surface->getBasePtr(x, y)) = g_director->transformColor(color);
+						}
+					}
+					break;
 				case 8:
 					// this calculation is wrong.. need a demo with colours.
 					if (paletted) {
-						*((byte *)_surface->getBasePtr(x, y)) = g_director->transformColor(pixels[(y * _surface->w) + x + (y * offset)]);
+						*((byte *)_surface->getBasePtr(x, y)) = pixels[(y * _surface->w) + x + (y * offset)];
 					} else {
+						// FIXME: this won't work if the palette for the image is not the current screen one
 						*((uint32 *)_surface->getBasePtr(x, y)) = g_director->transformColor(pixels[(y * _surface->w) + x + (y * offset)]);
 					}
 					x++;

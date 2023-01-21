@@ -239,7 +239,7 @@ void updateMapFeatures(int16 cWorld) {
 			uint16   *mapRow;
 			mapRow = &mapData[(g_vm->_mapFeatures[i]->getU() >> (kTileUVShift + kPlatShift)) * wMap->mapSize];
 			uint16   mtile = mapRow[(g_vm->_mapFeatures[i]->getV() >> (kTileUVShift + kPlatShift))];
-			g_vm->_mapFeatures[i]->expose(mtile & metaTileVisited);
+			g_vm->_mapFeatures[i]->expose(mtile & kMetaTileVisited);
 		}
 	}
 }
@@ -337,12 +337,12 @@ void CMapFeature::draw(TileRegion viewRegion,
 #ifdef DEBUG_FEATUREPOS
 	else {
 		char msg[256];
-		sprintf(msg, "Hide: ");
-		if (!visible) strcat(msg, "not visible");
-		if (!(fCoords.u >= viewRegion.min.u)) sprintf(msg + strlen(msg), "U lo %d,%d ", fCoords.u, viewRegion.min.u);
-		if (!(fCoords.u <= viewRegion.max.u)) sprintf(msg + strlen(msg), "U hi %d,%d ", fCoords.u, viewRegion.max.u);
-		if (!(fCoords.v >= viewRegion.min.v)) sprintf(msg + strlen(msg), "V lo %d,%d ", fCoords.v, viewRegion.min.v);
-		if (!(fCoords.v <= viewRegion.max.v)) sprintf(msg + strlen(msg), "V hi %d,%d ", fCoords.v, viewRegion.max.v);
+		Common::sprintf_s(msg, "Hide: ");
+		if (!visible) Common::strcat_s(msg, "not visible");
+		if (!(fCoords.u >= viewRegion.min.u)) Common::sprintf_s(msg + strlen(msg), "U lo %d,%d ", fCoords.u, viewRegion.min.u);
+		if (!(fCoords.u <= viewRegion.max.u)) Common::sprintf_s(msg + strlen(msg), "U hi %d,%d ", fCoords.u, viewRegion.max.u);
+		if (!(fCoords.v >= viewRegion.min.v)) Common::sprintf_s(msg + strlen(msg), "V lo %d,%d ", fCoords.v, viewRegion.min.v);
+		if (!(fCoords.v <= viewRegion.max.v)) Common::sprintf_s(msg + strlen(msg), "V hi %d,%d ", fCoords.v, viewRegion.max.v);
 		WriteStatusF(12, "%s", msg);
 	}
 #endif

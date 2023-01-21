@@ -92,7 +92,7 @@ public:
 	void clearFocusRectangle() override {}
 
 	// GraphicsManager API - Overlay
-	void showOverlay() override;
+	void showOverlay(bool inGUI) override;
 	void hideOverlay() override;
 	Graphics::PixelFormat getOverlayFormat() const override { return _overlayFormat; }
 	void clearOverlay() override;
@@ -174,8 +174,6 @@ protected:
 	OpenGL::FrameBuffer *_frameBuffer;
 	OpenGL::FrameBuffer *createFramebuffer(uint width, uint height);
 	bool shouldRenderToFramebuffer() const;
-
-	bool isVSyncEnabled() const;
 
 protected:
 

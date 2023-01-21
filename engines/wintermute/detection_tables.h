@@ -21,12 +21,6 @@
 
 namespace Wintermute {
 
-#define GAMEOPTION_SHOW_FPS          GUIO_GAMEOPTIONS1
-#define GAMEOPTION_BILINEAR          GUIO_GAMEOPTIONS2
-#ifdef ENABLE_WME3D
-#define GAMEOPTION_FORCE_2D_RENDERER GUIO_GAMEOPTIONS3
-#endif
-
 static const PlainGameDescriptor wintermuteGames[] = {
 	{"5ld",             "Five Lethal Demons"},
 	{"5ma",             "Five Magical Amulets"},
@@ -101,6 +95,7 @@ static const PlainGameDescriptor wintermuteGames[] = {
 	{"idiotstale",      "The Idiot's Tale"},
 	{"imustkill",       "I Must Kill...: Fresh Meat"},
 	{"jamesperis",      "James Peris: No License Nor Control"},
+	{"jamesperis2",     "James Peris 2: The Fountain of Eternal Drunkenness"},
 	{"klaymen1",        "Klaymen Episodes: Pilot"},
 	{"knossos",         "K'NOSSOS"},
 	{"kulivocko",       "Kulivocko"},
@@ -112,6 +107,7 @@ static const PlainGameDescriptor wintermuteGames[] = {
 	{"juliastars",      "J.U.L.I.A.: Among the Stars"},
 	{"juliauntold",     "J.U.L.I.A.: Untold"},
 	{"lotl",            "Limbo of the Lost"},
+	{"lostbride",       "Tale of The Lost Bride and A Hidden Treasure"},
 	{"machumayu",       "Machu Mayu"},
 	{"mentalrepairs",   "Mental Repairs Inc"},
 	{"mirage",          "Mirage"},
@@ -1370,7 +1366,7 @@ static const WMEGameDescription gameDescriptions[] = {
 	// Fred (English) (PreAlpha)
 	WME_WINENTRY("fred", "PreAlpha",
 		WME_ENTRY2s("string.tab", "76b48c26e611071810d8182fc27f7d0e", 12590,
-		            "data.dcp", "e18b1f9815b9e9cf1d1357bc48269b0b", 7632855), Common::EN_ANY, ADGF_UNSUPPORTED | ADGF_DEMO, WME_1_0_31),
+					"data.dcp", "e18b1f9815b9e9cf1d1357bc48269b0b", 7632855), Common::EN_ANY, ADGF_UNSUPPORTED | ADGF_DEMO, WME_1_0_31),
 
 	// Fred (French) (PreAlpha)
 	WME_WINENTRY("fred", "PreAlpha",
@@ -1584,6 +1580,16 @@ static const WMEGameDescription gameDescriptions[] = {
 	WME_WINENTRY("jamesperis", "Demo",
 		WME_ENTRY1s("data.dcp", "edb9f9c7a08993c1e28f4e477b5f9830", 116113507), Common::ES_ESP, ADGF_UNSTABLE | ADGF_DEMO, WME_1_9_1),
 
+	// James Peris 2: The Fountain of Eternal Drunkenness (English)
+	WME_WINENTRY("jamesperis2", "Steam",
+		WME_ENTRY2s("data.dcp", "1d19fac76ab9267881214d7c7968acb6", 980791568,
+					"audio.dcp", "0a768e0266238772b698b5a26a9c2b50", 488048201), Common::EN_ANY, ADGF_UNSTABLE, WME_1_9_3),
+
+	// James Peris 2: The Fountain of Eternal Drunkenness (Spanish)
+	WME_WINENTRY("jamesperis2", "Steam",
+		WME_ENTRY2s("data.dcp", "1d19fac76ab9267881214d7c7968acb6", 980791568,
+					"audio.dcp", "0a768e0266238772b698b5a26a9c2b50", 488048201), Common::ES_ESP, ADGF_UNSTABLE, WME_1_9_3),
+
 	// Lov Mamuta
 	WME_WINENTRY("lovmamuta", "",
 		WME_ENTRY1s("data.dcp", "ce2be4691fa0104cfdd63656cedaf810", 11198933), Common::CS_CZE, ADGF_UNSTABLE | GF_3D, WME_1_9_1),
@@ -1639,32 +1645,32 @@ static const WMEGameDescription gameDescriptions[] = {
 					"data_hd.dcp", "da3508bd60025bac35211fb6fc959d88", 5655554), Common::ES_ESP, ADGF_UNSTABLE | GF_IGNORE_SD_FILES, WME_LITE),
 
 	// J.U.L.I.A.: Among the Stars (HD Ready Version) (GOG) (English)
-	WME_WINENTRY("juliastars", "HD Ready Version/GOG",
+	WME_WINENTRY("juliastars", "HD Ready Version/GOG.com",
 		WME_ENTRY2s("data_sd.dcp", "da1f147a5f2ee6eb0750678a8b955c93", 4526792,
 					"data_sd.dcp", "da1f147a5f2ee6eb0750678a8b955c93", 4526792), Common::EN_ANY, ADGF_UNSTABLE | GF_IGNORE_HD_FILES, WME_LITE),
 
 	// J.U.L.I.A.: Among the Stars (Full HD Version) (GOG) (English)
-	WME_WINENTRY("juliastars", "Full HD Version/GOG",
+	WME_WINENTRY("juliastars", "Full HD Version/GOG.com",
 		WME_ENTRY2s("data_hd.dcp", "91dcb65523da943f22fca0c025a2ce8e", 5281911,
 					"data_hd.dcp", "91dcb65523da943f22fca0c025a2ce8e", 5281911), Common::EN_ANY, ADGF_UNSTABLE | GF_IGNORE_SD_FILES, WME_LITE),
 
 	// J.U.L.I.A.: Among the Stars (HD Ready Version) (GOG) (German)
-	WME_WINENTRY("juliastars", "HD Ready Version/GOG",
+	WME_WINENTRY("juliastars", "HD Ready Version/GOG.com",
 		WME_ENTRY2s("data_sd.dcp", "070d13b70e35cd95855ddc1687446631", 4526795,
 					"german_sd.dcp", "85eb39225083465225c30261a6bcd63e", 123326134), Common::DE_DEU, ADGF_UNSTABLE | GF_IGNORE_HD_FILES, WME_LITE),
 
 	// J.U.L.I.A.: Among the Stars (Full HD Version) (GOG) (German)
-	WME_WINENTRY("juliastars", "Full HD Version/GOG",
+	WME_WINENTRY("juliastars", "Full HD Version/GOG.com",
 		WME_ENTRY2s("data_hd.dcp", "7973ca635255d3791123fd750cb848f2", 5281925,
 					"german_hd.dcp", "19a771b1a933b71b889026d53734b0c0", 152500044), Common::DE_DEU, ADGF_UNSTABLE | GF_IGNORE_SD_FILES, WME_LITE),
 
 	// J.U.L.I.A.: Among the Stars (HD Ready Version) (GOG) (Spanish fanmade translation)
-	WME_WINENTRY("juliastars", "HD Ready Version/GOG",
+	WME_WINENTRY("juliastars", "HD Ready Version/GOG.com",
 		WME_ENTRY2s("data_sd.dcp", "29f4856cc1514bdb86d3b19a39d86d76", 5877935,
 					"data_sd.dcp", "29f4856cc1514bdb86d3b19a39d86d76", 5877935), Common::ES_ESP, ADGF_UNSTABLE | GF_IGNORE_HD_FILES, WME_LITE),
 
 	// J.U.L.I.A.: Among the Stars (Full HD Version) (GOG) (Spanish fanmade translation)
-	WME_WINENTRY("juliastars", "Full HD Version/GOG",
+	WME_WINENTRY("juliastars", "Full HD Version/GOG.com",
 		WME_ENTRY2s("data_hd.dcp", "29f4856cc1514bdb86d3b19a39d86d76", 5877935,
 					"data_hd.dcp", "29f4856cc1514bdb86d3b19a39d86d76", 5877935), Common::ES_ESP, ADGF_UNSTABLE | GF_IGNORE_SD_FILES, WME_LITE),
 
@@ -1673,7 +1679,7 @@ static const WMEGameDescription gameDescriptions[] = {
 		WME_ENTRY1s("data.dcp", "fe995e26253f6e0a925dd7850fce17a9", 26459827), Common::EN_ANY, ADGF_UNSTABLE, WME_LITE),
 
 	// J.U.L.I.A.: Untold (GOG)
-	WME_WINENTRY("juliauntold", "GOG",
+	WME_WINENTRY("juliauntold", "GOG.com",
 		WME_ENTRY1s("data.dcp", "b0aefd82647a26425fe3ee21aabb6283", 26462676), Common::EN_ANY, ADGF_UNSTABLE, WME_LITE),
 
 	// Klaymen Episodes: Pilot
@@ -1731,6 +1737,10 @@ static const WMEGameDescription gameDescriptions[] = {
 	// Limbo of the Lost (Russian)
 	WME_WINENTRY("lotl", "",
 		WME_ENTRY1s("data.dcp", "2042ea14f2d7c52a139d768e962040c1", 354370575), Common::RU_RUS, ADGF_UNSTABLE | GF_3D, WME_1_7_2),
+
+	// Tale of The Lost Bride and A Hidden Treasure (Russian)
+	WME_WINENTRY("lostbride", "",
+		WME_ENTRY1s("data.dcp", "cb45b579c6d5767341a9b07bc807df5f", 106683613), Common::RU_RUS, ADGF_UNSTABLE, WME_1_9_1),
 
 	// Machu Mayu (Demo)
 	WME_WINENTRY("machumayu", "Demo",

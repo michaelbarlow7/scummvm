@@ -100,7 +100,7 @@ Score::~Score() {
 }
 
 int Score::getCurrentPalette() {
-	return _frames[_currentFrame]->_palette.paletteId;
+	return _lastPalette;
 }
 
 int Score::resolvePaletteId(int id) {
@@ -325,6 +325,7 @@ void Score::update() {
 	if (!debugChannelSet(-1, kDebugFast)) {
 		bool keepWaiting = false;
 
+		debugC(8, kDebugLoading, "Score::update(): nextFrameTime: %d, time: %d", _nextFrameTime, g_system->getMillis(false));
 		if (_waitForChannel) {
 			if (_soundManager->isChannelActive(_waitForChannel)) {
 				keepWaiting = true;
@@ -421,56 +422,6 @@ void Score::update() {
 		}
 	}
 
-	debugC(1, kDebugImages, "******************************  Current frame: %d", _currentFrame);
-	g_debugger->frameHook();
-
-	uint initialCallStackSize = _window->_callstack.size();
-
-	_lingo->executeImmediateScripts(_frames[_currentFrame]);
-
-	if (_vm->getVersion() >= 600) {
-		// _movie->processEvent(kEventBeginSprite);
-		// TODO Director 6 step: send beginSprite event to any sprites whose span begin in the upcoming frame
-		// _movie->processEvent(kEventPrepareFrame);
-		// TODO: Director 6 step: send prepareFrame event to all sprites and the script channel in upcoming frame
-	}
-
-	// Window is drawn between the prepareFrame and enterFrame events (Lingo in a Nutshell, p.100)
-	renderFrame(_currentFrame);
-	_window->_newMovieStarted = false;
-
-	// Enter and exit from previous frame
-	if (!_vm->_playbackPaused) {
-		_movie->processEvent(kEventEnterFrame); // Triggers the frame script in D2-3, explicit enterFrame handlers in D4+
-		if ((_vm->getVersion() >= 300 && _vm->getVersion() < 400) || _movie->_allowOutdatedLingo) {
-			// Movie version of enterFrame, for D3 only. The D3 Interactivity Manual claims
-			// "This handler executes before anything else when the playback head moves."
-			// but this is incorrect. The frame script is executed first.
-			_movie->processEvent(kEventStepMovie);
-		}
-		if (_movie->_timeOutPlay)
-			_movie->_lastTimeOut = _vm->getMacTicks();
-	}
-	// TODO Director 6 - another order
-
-	// TODO: Figure out when exactly timeout events are processed
-	if (_vm->getMacTicks() - _movie->_lastTimeOut >= _movie->_timeOutLength) {
-		_movie->processEvent(kEventTimeout);
-		_movie->_lastTimeOut = _vm->getMacTicks();
-	}
-
-	// If we have more call stack frames than we started with, then we have a newly
-	// added frozen context. We'll deal with that later.
-	if (_window->_callstack.size() == initialCallStackSize) {
-		// We may have a frozen Lingo context from func_goto.
-		// Now that we've entered a new frame, let's unfreeze that context.
-		if (g_lingo->_freezeContext) {
-			debugC(1, kDebugLingoExec, "Score::update(): Unfreezing Lingo context");
-			g_lingo->_freezeContext = false;
-			g_lingo->execute();
-		}
-	}
-
 	byte tempo = _frames[_currentFrame]->_scoreCachedTempo;
 	// puppetTempo is overridden by changes in score tempo
 	if (_frames[_currentFrame]->_tempo || tempo != _lastTempo) {
@@ -516,6 +467,63 @@ void Score::update() {
 
 	if (debugChannelSet(-1, kDebugSlow))
 		_nextFrameTime += 1000;
+
+	debugC(1, kDebugLoading, "******************************  Current frame: %d, time: %d", _currentFrame, g_system->getMillis(false));
+	g_debugger->frameHook();
+
+	_lingo->executeImmediateScripts(_frames[_currentFrame]);
+
+	if (_vm->getVersion() >= 600) {
+		// _movie->processEvent(kEventBeginSprite);
+		// TODO Director 6 step: send beginSprite event to any sprites whose span begin in the upcoming frame
+		// _movie->processEvent(kEventPrepareFrame);
+		// TODO: Director 6 step: send prepareFrame event to all sprites and the script channel in upcoming frame
+	}
+
+	// Window is drawn between the prepareFrame and enterFrame events (Lingo in a Nutshell, p.100)
+	renderFrame(_currentFrame);
+	_window->_newMovieStarted = false;
+
+	// Enter and exit from previous frame
+	if (!_vm->_playbackPaused) {
+		uint32 count = _window->frozenLingoStateCount();
+		// Triggers the frame script in D2-3, explicit enterFrame handlers in D4+
+		_movie->processEvent(kEventEnterFrame);
+		// If another frozen state gets triggered, wait another update() before thawing
+		if (_window->frozenLingoStateCount() > count)
+			return;
+	}
+
+	// Attempt to thaw and continue any frozen execution after startMovie and enterFrame
+	while (uint32 count = _window->frozenLingoStateCount()) {
+		_window->thawLingoState();
+		g_lingo->switchStateFromWindow();
+		g_lingo->execute();
+		if (_window->frozenLingoStateCount() >= count) {
+			debugC(3, kDebugLingoExec, "State froze again mid-thaw, interrupting");
+			return;
+		}
+	}
+
+	if (!_vm->_playbackPaused) {
+		if ((_vm->getVersion() >= 300 && _vm->getVersion() < 400) || _movie->_allowOutdatedLingo) {
+			// Movie version of enterFrame, for D3 only. The D3 Interactivity Manual claims
+			// "This handler executes before anything else when the playback head moves."
+			// but this is incorrect. The frame script is executed first.
+			_movie->processEvent(kEventStepMovie);
+		}
+		if (_movie->_timeOutPlay)
+			_movie->_lastTimeOut = _vm->getMacTicks();
+	}
+
+	// TODO Director 6 - another order
+
+	// TODO: Figure out when exactly timeout events are processed
+	if (_vm->getMacTicks() - _movie->_lastTimeOut >= _movie->_timeOutLength) {
+		_movie->processEvent(kEventTimeout);
+		_movie->_lastTimeOut = _vm->getMacTicks();
+	}
+
 }
 
 void Score::renderFrame(uint16 frameId, RenderMode mode) {
@@ -525,6 +533,7 @@ void Score::renderFrame(uint16 frameId, RenderMode mode) {
 
 	if (!renderTransition(frameId)) {
 		bool skip = renderPrePaletteCycle(frameId, mode);
+		setLastPalette(frameId);
 		renderSprites(frameId, mode);
 		_window->render();
 		if (!skip)
@@ -552,6 +561,7 @@ bool Score::renderTransition(uint16 frameId) {
 		_window->_puppetTransition = nullptr;
 		return true;
 	} else if (currentFrame->_transType) {
+		setLastPalette(frameId);
 		_window->playTransition(frameId, currentFrame->_transDuration, currentFrame->_transArea, currentFrame->_transChunkSize, currentFrame->_transType, resolvePaletteId(currentFrame->_palette.paletteId));
 		return true;
 	} else {
@@ -699,7 +709,7 @@ bool Score::renderPrePaletteCycle(uint16 frameId, RenderMode mode) {
 	return false;
 }
 
-void Score::renderPaletteCycle(uint16 frameId, RenderMode mode) {
+void Score::setLastPalette(uint16 frameId) {
 	if (_puppetPalette)
 		return;
 
@@ -713,7 +723,27 @@ void Score::renderPaletteCycle(uint16 frameId, RenderMode mode) {
 	if (paletteChanged) {
 		_lastPalette = currentPalette;
 		_paletteTransitionIndex = 0;
+
+		// For color cycling mode, if there's a new palette, switch to it immediately
+		if (_frames[frameId]->_palette.colorCycling)
+			g_director->setPalette(resolvePaletteId(_lastPalette));
 	}
+
+}
+
+bool Score::isPaletteColorCycling() {
+	return _frames[_currentFrame]->_palette.colorCycling;
+}
+
+void Score::renderPaletteCycle(uint16 frameId, RenderMode mode) {
+	if (_puppetPalette)
+		return;
+
+	// If the palette is defined in the frame and doesn't match
+	// the current one, set it
+	int currentPalette = _frames[frameId]->_palette.paletteId;
+	if (!currentPalette || !resolvePaletteId(currentPalette))
+		return;
 
 	// For palette cycling, the only thing that is checked is if
 	// the palette ID is the same. Different cycling configs with
@@ -729,23 +759,24 @@ void Score::renderPaletteCycle(uint16 frameId, RenderMode mode) {
 		return;
 	// 30 (the maximum) is actually unbounded
 	int delay = speed == 30 ? 10 : 1000 / speed;
-	// Palette indexes are in reverse order thanks to transformColor
 	if (_frames[frameId]->_palette.colorCycling) {
 		// Cycle the colors of a chosen palette
 		int firstColor = _frames[frameId]->_palette.firstColor;
 		int lastColor = _frames[frameId]->_palette.lastColor;
-
-		// If we've just chosen this palette, set it immediately
-		if (paletteChanged)
-			g_director->setPalette(resolvePaletteId(currentPalette));
 
 		if (_frames[frameId]->_palette.overTime) {
 			// Do a single color step in one frame transition
 			g_director->shiftPalette(firstColor, lastColor, false);
 			g_director->draw();
 		} else {
+			// Short circuit for few frames renderer
+			if (debugChannelSet(-1, kDebugFewFramesOnly)) {
+				g_director->setPalette(resolvePaletteId(currentPalette));
+				return;
+			}
+
 			// Do a full color cycle in one frame transition
-			int steps = firstColor - lastColor + 1;
+			int steps = lastColor - firstColor + 1;
 			for (int i = 0; i < _frames[frameId]->_palette.cycleCount; i++) {
 				for (int j = 0; j < steps; j++) {
 					g_director->shiftPalette(firstColor, lastColor, false);
@@ -833,8 +864,13 @@ void Score::renderPaletteCycle(uint16 frameId, RenderMode mode) {
 			_paletteTransitionIndex++;
 			_paletteTransitionIndex %= frameCount;
 		} else {
-			// Do a full cycle in one frame transition
+			// Short circuit for few frames renderer
+			if (debugChannelSet(-1, kDebugFewFramesOnly)) {
+				g_director->setPalette(resolvePaletteId(currentPalette));
+				return;
+			}
 
+			// Do a full cycle in one frame transition
 			// For normal mode, we've already faded the palette in renderPrePaletteCycle
 			if (!_frames[frameId]->_palette.normal) {
 				byte *fadePal = nullptr;
@@ -1371,6 +1407,43 @@ void Score::loadActions(Common::SeekableReadStreamEndian &stream) {
 	}
 
 	free(scriptRefs);
+}
+
+Common::String Score::formatChannelInfo() {
+	Frame &frame = *_frames[_currentFrame];
+	Common::String result;
+	result += Common::String::format("TMPO:   tempo: %d, skipFrameFlag: %d, blend: %d\n",
+		frame._tempo, frame._skipFrameFlag, frame._blend);
+	if (frame._palette.paletteId) {
+		result += Common::String::format("PAL:    paletteId: %d, firstColor: %d, lastColor: %d, flags: %d, cycleCount: %d, speed: %d, frameCount: %d, fade: %d, delay: %d, style: %d\n",
+			frame._palette.paletteId, frame._palette.firstColor, frame._palette.lastColor, frame._palette.flags,
+			frame._palette.cycleCount, frame._palette.speed, frame._palette.frameCount,
+			frame._palette.fade, frame._palette.delay, frame._palette.style);
+	} else {
+		result += Common::String::format("PAL:    paletteId: 000\n");
+	}
+	result += Common::String::format("TRAN:   transType: %d, transDuration: %d, transChunkSize: %d\n",
+		frame._transType, frame._transDuration, frame._transChunkSize);
+	result += Common::String::format("SND: 1  sound1: %d, soundType1: %d\n", frame._sound1.member, frame._soundType1);
+	result += Common::String::format("SND: 2  sound2: %d, soundType2: %d\n", frame._sound2.member, frame._soundType2);
+	result += Common::String::format("LSCR:   actionId: %d\n", frame._actionId.member);
+
+	for (int i = 0; i < frame._numChannels; i++) {
+		Channel &channel = *_channels[i + 1];
+		Sprite &sprite = *channel._sprite;
+		if (sprite._castId.member) {
+			result += Common::String::format("CH: %-3d castId: %s, visible: %d, [inkData: 0x%02x [ink: %d, trails: %d, line: %d], %dx%d@%d,%d type: %d fg: %d bg: %d], script: %s, flags2: 0x%x, unk2: 0x%x, unk3: 0x%x, constraint: %d, puppet: %d, stretch: %d\n",
+				i + 1, sprite._castId.asString().c_str(), channel._visible, sprite._inkData,
+				sprite._ink, sprite._trails, sprite._thickness, channel._width, channel._height,
+				channel._currentPoint.x, channel._currentPoint.y,
+				sprite._spriteType, sprite._foreColor, sprite._backColor, sprite._scriptId.asString().c_str(), sprite._colorcode, sprite._blendAmount, sprite._unk3, channel._constraint, sprite._puppet, sprite._stretch);
+		} else {
+			result += Common::String::format("CH: %-3d castId: 000\n", i + 1);
+		}
+	}
+
+	return result;
+
 }
 
 } // End of namespace Director

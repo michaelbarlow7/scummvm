@@ -20,6 +20,7 @@
  */
 
 #include "graphics/macgui/macbutton.h"
+#include "graphics/surface.h"
 #include "image/image_decoder.h"
 #include "video/avi_decoder.h"
 #include "video/qt_decoder.h"
@@ -30,6 +31,7 @@
 #include "director/cursor.h"
 #include "director/channel.h"
 #include "director/movie.h"
+#include "director/score.h"
 #include "director/sprite.h"
 #include "director/sound.h"
 #include "director/window.h"
@@ -100,7 +102,7 @@ BitmapCastMember::BitmapCastMember(Cast *cast, uint16 castId, Common::SeekableRe
 	_pitch = 0;
 	_flags2 = 0;
 	_regX = _regY = 0;
-	_clut = kClutSystemMac;
+	_clut = 0;
 	_bitsPerPixel = 0;
 
 	if (version < kFileVer400) {
@@ -114,7 +116,9 @@ BitmapCastMember::BitmapCastMember(Cast *cast, uint16 castId, Common::SeekableRe
 
 		if (_bytes & 0x8000) {
 			_bitsPerPixel = stream.readUint16();
-			_clut = stream.readSint16() - 1;
+			_clut = stream.readSint16();
+			if (_clut <= 0) // builtin palette
+				_clut -= 1;
 		} else {
 			_bitsPerPixel = 1;
 			_clut = kClutSystemMac;
@@ -123,6 +127,9 @@ BitmapCastMember::BitmapCastMember(Cast *cast, uint16 castId, Common::SeekableRe
 		_pitch = _initialRect.width();
 		if (_pitch % 16)
 			_pitch += 16 - (_initialRect.width() % 16);
+
+		_pitch *= _bitsPerPixel;
+		_pitch >>= 3;
 
 	} else if (version >= kFileVer400 && version < kFileVer500) {
 		_flags1 = flags1;
@@ -139,7 +146,9 @@ BitmapCastMember::BitmapCastMember(Cast *cast, uint16 castId, Common::SeekableRe
 		if (stream.eos()) {
 			_bitsPerPixel = 0;
 		} else {
-			_clut = stream.readSint16() - 1;
+			_clut = stream.readSint16();
+			if (_clut <= 0) // builtin palette
+				_clut -= 1;
 			stream.readUint16();
 			/* uint16 unk1 = */ stream.readUint16();
 			stream.readUint16();
@@ -152,9 +161,6 @@ BitmapCastMember::BitmapCastMember(Cast *cast, uint16 castId, Common::SeekableRe
 
 		if (_bitsPerPixel == 0)
 			_bitsPerPixel = 1;
-
-		if (_bitsPerPixel == 1)
-			_pitch *= 8;
 
 		int tail = 0;
 		byte buf[256];
@@ -219,8 +225,10 @@ BitmapCastMember::~BitmapCastMember() {
 	if (_img)
 		delete _img;
 
-	if (_ditheredImg)
+	if (_ditheredImg) {
+		_ditheredImg->free();
 		delete _ditheredImg;
+	}
 
 	if (_matte)
 		delete _matte;
@@ -241,6 +249,11 @@ Graphics::MacWidget *BitmapCastMember::createWidget(Common::Rect &bbox, Channel 
 	int srcBpp = _img->getSurface()->format.bytesPerPixel;
 
 	const byte *pal = _img->getPalette();
+	if (_ditheredImg) {
+		_ditheredImg->free();
+		delete _ditheredImg;
+		_ditheredImg = nullptr;
+	}
 
 	if (dstBpp == 1) {
 		if (srcBpp > 1
@@ -252,9 +265,78 @@ Graphics::MacWidget *BitmapCastMember::createWidget(Common::Rect &bbox, Channel 
 #endif
 			) {
 
-			ditherFloydImage();
+			_ditheredImg = _img->getSurface()->convertTo(g_director->_wm->_pixelformat, _img->getPalette(), _img->getPaletteColorCount(), g_director->_wm->getPalette(), g_director->_wm->getPaletteSize());
 
 			pal = g_director->_wm->getPalette();
+		} else {
+			// Convert indexed image to indexed palette
+			Movie *movie = g_director->getCurrentMovie();
+			Cast *cast = movie->getCast();
+			Score *score = movie->getScore();
+			// Get the current score palette. Note that this is the ID of the palette in the list, not the cast member!
+			int currentPaletteId = score->resolvePaletteId(score->getCurrentPalette());
+			if (!currentPaletteId)
+				currentPaletteId = cast->_defaultPalette;
+			PaletteV4 *currentPalette = g_director->getPalette(currentPaletteId);
+			if (!currentPalette)
+				currentPalette = g_director->getPalette(kClutSystemMac);
+			int castPaletteId = score->resolvePaletteId(_clut);
+			if (!castPaletteId)
+				castPaletteId = cast->_defaultPalette;
+
+			// Check if the palette is in the middle of a color fade event
+			bool isColorCycling = score->isPaletteColorCycling();
+
+			// First, check if the palettes are different
+			switch (_bitsPerPixel) {
+			// 1bpp - this is preconverted to 0x00 and 0xff, change nothing.
+			case 1:
+				break;
+			// 2bpp - convert to nearest using the standard 2-bit palette.
+			case 2:
+				{
+					const PaletteV4 &srcPal = g_director->getLoaded4Palette();
+					_ditheredImg = _img->getSurface()->convertTo(g_director->_wm->_pixelformat, srcPal.palette, srcPal.length, currentPalette->palette, currentPalette->length, Graphics::kDitherNaive);
+				}
+				break;
+			// 4bpp - if using a builtin palette, use one of the corresponding 4-bit ones.
+			case 4:
+				{
+					const auto pals = g_director->getLoaded16Palettes();
+					// in D4 you aren't allowed to use custom palettes for 4-bit images, so uh...
+					// I guess default to the mac palette?
+					int palIndex = pals.contains(castPaletteId) ? castPaletteId : kClutSystemMac;
+					const PaletteV4 &srcPal = pals.getVal(palIndex);
+					_ditheredImg = _img->getSurface()->convertTo(g_director->_wm->_pixelformat, srcPal.palette, srcPal.length, currentPalette->palette, currentPalette->length, Graphics::kDitherNaive);
+				}
+				break;
+			// 8bpp - if using a different palette, and we're not doing a color cycling operation, convert using nearest colour matching
+			case 8:
+				if (castPaletteId != currentPaletteId && !isColorCycling) {
+					const auto pals = g_director->getLoadedPalettes();
+					int palIndex = pals.contains(castPaletteId) ? castPaletteId : kClutSystemMac;
+					const PaletteV4 &srcPal = pals.getVal(palIndex);
+					_ditheredImg = _img->getSurface()->convertTo(g_director->_wm->_pixelformat, srcPal.palette, srcPal.length, currentPalette->palette, currentPalette->length, Graphics::kDitherNaive);
+				}
+				break;
+			default:
+				break;
+			}
+
+			// Finally, the first and last colours in the palette are special. No matter what the palette remap
+			// does, we need to scrub those to be the same.
+			if (_ditheredImg) {
+				const Graphics::Surface *src = _img->getSurface();
+				for (int y = 0; y < src->h; y++) {
+					for (int x = 0; x < src->w; x++) {
+						const int test = *(const byte *)src->getBasePtr(x, y);
+						if (test == 0 || test == (1 << _bitsPerPixel) - 1) {
+							*(byte *)_ditheredImg->getBasePtr(x, y) = test == 0 ? 0x00 : 0xff;
+						}
+					}
+				}
+			}
+
 		}
 	}
 
@@ -311,281 +393,6 @@ void BitmapCastMember::copyStretchImg(Graphics::Surface *surface, const Common::
 	} else {
 		surface->copyFrom(*srcSurf);
 	}
-}
-
-void BitmapCastMember::ditherImage() {
-	// If palette did not change, do not re-dither
-	if (!_paletteLookup.setPalette(g_director->_wm->getPalette(), g_director->_wm->getPaletteSize()))
-		return;
-
-	int bpp = _img->getSurface()->format.bytesPerPixel;
-	int w = _initialRect.width();
-	int h = _initialRect.height();
-
-	_ditheredImg = new Graphics::Surface;
-	_ditheredImg->create(w, h, Graphics::PixelFormat::createFormatCLUT8());
-
-	for (int y = 0; y < h; y++) {
-		const byte *src = (const byte *)_img->getSurface()->getBasePtr(0, y);
-		byte *dst = (byte *)_ditheredImg->getBasePtr(0, y);
-
-		for (int x = 0; x < w; x++) {
-			uint32 color;
-
-			switch (bpp) {
-			case 1:
-				color = *((const byte *)src);
-				src += 1;
-				break;
-			case 2:
-				color = *((const uint16 *)src);
-				src += 2;
-				break;
-			case 4:
-				color = *((const uint32 *)src);
-				src += 4;
-				break;
-			default:
-				error("BitmapCastMember::ditherImage(): Unsupported bit depth: %d", bpp);
-			}
-
-			byte r, g, b;
-			_img->getSurface()->format.colorToRGB(color, r, g, b);
-
-			*dst = _paletteLookup.findBestColor(r, g, b);
-			dst++;
-		}
-	}
-}
-
-static void updatePixel(byte *surf, int x, int y, int w, int h, int qr, int qg, int qb, int qq, int qdiv) {
-	if (x >= w || y >= h)
-		return;
-
-	byte *ptr = &surf[x * 3 + y * w * 3];
-
-	ptr[0] = CLIP(ptr[0] + qr * qq / qdiv, 0, 255);
-	ptr[1] = CLIP(ptr[1] + qg * qq / qdiv, 0, 255);
-	ptr[2] = CLIP(ptr[2] + qb * qq / qdiv, 0, 255);
-}
-
-void BitmapCastMember::ditherFloydImage() {
-	// If palette did not change, do not re-dither
-	if (!_paletteLookup.setPalette(g_director->_wm->getPalette(), g_director->_wm->getPaletteSize()))
-		return;
-
-	int w = _initialRect.width();
-	int h = _initialRect.height();
-
-	byte *tmpSurf = (byte *)malloc(w * h * 3);
-
-	int bpp = _img->getSurface()->format.bytesPerPixel;
-	const byte *pal = _img->getPalette();
-
-	for (int y = 0; y < h; y++) {
-		const byte *src = (const byte *)_img->getSurface()->getBasePtr(0, y);
-		byte *dst = &tmpSurf[y * w * 3];
-
-		byte r, g, b;
-
-		for (int x = 0; x < w; x++) {
-			uint32 color;
-
-			switch (bpp) {
-			case 1:
-				color = *src * 3;
-				src += 1;
-				r = pal[color + 0]; g = pal[color + 1]; b = pal[color + 2];
-				break;
-			case 2:
-				color = *((const uint16 *)src);
-				src += 2;
-				_img->getSurface()->format.colorToRGB(color, r, g, b);
-				break;
-			case 4:
-				color = *((const uint32 *)src);
-				src += 4;
-				_img->getSurface()->format.colorToRGB(color, r, g, b);
-				break;
-			default:
-				error("BitmapCastMember::ditherFloydImage(): Unsupported bit depth: %d", bpp);
-			}
-
-			dst[0] = r; dst[1] = g; dst[2] = b;
-			dst += 3;
-		}
-	}
-
-	_ditheredImg = new Graphics::Surface;
-	_ditheredImg->create(w, h, Graphics::PixelFormat::createFormatCLUT8());
-
-	pal = g_director->_wm->getPalette();
-
-	struct DitherParams {
-		int dy, dx, qq;
-	};
-
-	DitherParams paramsNaive[] = {
-		{ 0, 0, 0 }
-	};
-
-	DitherParams paramsFloyd[] = {
-		{ 0, +1, 7 },
-		{ 1, -1, 3 },
-		{ 1,  0, 5 },
-		{ 1, +1, 1 },
-		{ 0,  0, 0 }
-	};
-
-	DitherParams paramsAtkinson[] = {
-		{ 0, +1, 1 },
-		{ 0, +2, 1 },
-		{ 1, -1, 1 },
-		{ 1,  0, 1 },
-		{ 1, +1, 1 },
-		{ 2,  0, 1 },
-		{ 0,  0, 0 }
-	};
-
-	DitherParams paramsBurkes[] = {
-		{ 0, +1, 8 },
-		{ 0, +2, 4 },
-		{ 1, -2, 2 },
-		{ 1, -1, 4 },
-		{ 1,  0, 8 },
-		{ 1, +1, 4 },
-		{ 1, +2, 2 },
-		{ 0,  0, 0 }
-	};
-
-	DitherParams paramsFalseFloyd[] = {
-		{ 0, +1, 3 },
-		{ 1,  0, 3 },
-		{ 1, +1, 2 },
-		{ 0,  0, 0 }
-	};
-
-    DitherParams paramsSierra[] = {
-		{ 0,  1, 5 },
-		{ 0,  2, 3 },
-		{ 1, -2, 2 },
-		{ 1, -1, 4 },
-		{ 1,  0, 5 },
-		{ 1,  1, 4 },
-		{ 1,  2, 2 },
-		{ 2, -1, 2 },
-		{ 2,  0, 3 },
-		{ 2,  1, 2 },
-		{ 0,  0, 0 }
-    };
-
-    DitherParams paramsSierraTwoRow[] = {
-		{ 0,  1, 4 },
-		{ 0,  2, 3 },
-		{ 1, -2, 1 },
-		{ 1, -1, 2 },
-		{ 1,  0, 3 },
-		{ 1,  1, 2 },
-		{ 1,  2, 1 },
-		{ 0,  0, 0 }
-    };
-
-    DitherParams paramsSierraLite[] = {
-		{ 0,  1, 2 },
-		{ 1, -1, 1 },
-		{ 1,  0, 1 },
-		{ 0,  0, 0 }
-    };
-
-    DitherParams paramsStucki[] = {
-		{ 0,  1, 8 },
-		{ 0,  2, 4 },
-		{ 1, -2, 2 },
-		{ 1, -1, 4 },
-		{ 1,  0, 8 },
-		{ 1,  1, 4 },
-		{ 1,  2, 2 },
-		{ 2, -2, 1 },
-		{ 2, -1, 2 },
-		{ 2,  0, 4 },
-		{ 2,  1, 2 },
-		{ 2,  2, 1 },
-		{ 0,  0, 0 }
-    };
-
-    DitherParams paramsJarvis[] = {
-		{ 0,  1, 7 },
-		{ 0,  2, 5 },
-		{ 1, -2, 3 },
-		{ 1, -1, 5 },
-		{ 1,  0, 7 },
-		{ 1,  1, 5 },
-		{ 1,  2, 3 },
-		{ 2, -2, 1 },
-		{ 2, -1, 3 },
-		{ 2,  0, 5 },
-		{ 2,  1, 3 },
-		{ 2,  2, 1 },
-		{ 0,  0, 0 }
-    };
-
-	struct DitherAlgos {
-		const char *name;
-		DitherParams *params;
-		int qdiv;
-	} const algos[] = {
-		{ "Naive",                paramsNaive,         1 },
-		{ "Floyd-Steinberg",      paramsFloyd,        16 },
-		{ "Atkinson",             paramsAtkinson,      8 },
-		{ "Burkes",               paramsBurkes,       32 },
-		{ "False Floyd-Steinberg",paramsFalseFloyd,    8 },
-		{ "Sierra",               paramsSierra,       32 },
-		{ "Sierra 2",             paramsSierraTwoRow, 16 },
-		{ "Sierra Lite",          paramsSierraLite,    4 },
-		{ "Stucki",               paramsStucki,       42 },
-		{ "Jarvis-Judice-Ninke ", paramsJarvis,       48 },
-		{ nullptr, nullptr, 0 }
-	};
-
-	enum {
-		kDitherNaive,
-		kDitherFloyd,
-		kDitherAtkinson,
-		kDitherBurkes,
-		kDitherFalseFloyd,
-		kDitherSierra,
-		kDitherSierraTwoRow,
-		kDitherSierraLite,
-		kDitherStucki,
-		kDitherJarvis,
-	};
-
-	for (int y = 0; y < h; y++) {
-		const byte *src = &tmpSurf[y * w * 3];
-		byte *dst = (byte *)_ditheredImg->getBasePtr(0, y);
-
-		for (int x = 0; x < w; x++) {
-			byte r = src[0], g = src[1], b = src[2];
-			byte col = _paletteLookup.findBestColor(r, g, b);
-
-			*dst = col;
-
-			int qr = r - pal[col * 3 + 0];
-			int qg = g - pal[col * 3 + 1];
-			int qb = b - pal[col * 3 + 2];
-
-			int algo = kDitherFloyd;
-			DitherParams *params = algos[algo].params;
-
-			for (int i = 0; params[i].dx != 0 || params[i].dy != 0; i++)
-				updatePixel(tmpSurf, x + params[i].dx, y + params[i].dy, w, h, qr, qg, qb, params[i].qq, algos[algo].qdiv);
-
-			src += 3;
-			dst++;
-		}
-	}
-
-	free(tmpSurf);
 }
 
 void BitmapCastMember::createMatte(Common::Rect &bbox) {
@@ -660,6 +467,17 @@ Graphics::Surface *BitmapCastMember::getMatte(Common::Rect &bbox) {
 	return _matte ? _matte->getMask() : nullptr;
 }
 
+Common::String BitmapCastMember::formatInfo() {
+	return Common::String::format(
+		"initialRect: %dx%d@%d,%d, boundingRect: %dx%d@%d,%d, foreColor: %d, backColor: %d, regX: %d, regY: %d, pitch: %d, bitsPerPixel: %d, palette: %d",
+		_initialRect.width(), _initialRect.height(),
+		_initialRect.left, _initialRect.top,
+		_boundingRect.width(), _boundingRect.height(),
+		_boundingRect.left, _boundingRect.top,
+		getForeColor(), getBackColor(),
+		_regX, _regY, _pitch, _bitsPerPixel, _clut
+	);
+}
 
 /////////////////////////////////////
 // DigitalVideo
@@ -940,6 +758,20 @@ void DigitalVideoCastMember::setFrameRate(int rate) {
 	warning("STUB: DigitalVideoCastMember::setFrameRate(%d)", rate);
 }
 
+Common::String DigitalVideoCastMember::formatInfo() {
+	return Common::String::format(
+		"initialRect: %dx%d@%d,%d, boundingRect: %dx%d@%d,%d, filename: \"%s\", duration: %d, enableVideo: %d, enableSound: %d, looping: %d, crop: %d, center: %d, showControls: %d",
+		_initialRect.width(), _initialRect.height(),
+		_initialRect.left, _initialRect.top,
+		_boundingRect.width(), _boundingRect.height(),
+		_boundingRect.left, _boundingRect.top,
+		_filename.c_str(), _duration,
+		_enableVideo, _enableSound,
+		_looping, _crop, _center, _showControls
+	);
+}
+
+
 /////////////////////////////////////
 // MovieCasts
 /////////////////////////////////////
@@ -965,6 +797,17 @@ MovieCastMember::MovieCastMember(Cast *cast, uint16 castId, Common::SeekableRead
 
 }
 
+Common::String MovieCastMember::formatInfo() {
+	return Common::String::format(
+		"initialRect: %dx%d@%d,%d, boundingRect: %dx%d@%d,%d, enableScripts: %d, enableSound: %d, looping: %d, crop: %d, center: %d",
+		_initialRect.width(), _initialRect.height(),
+		_initialRect.left, _initialRect.top,
+		_boundingRect.width(), _boundingRect.height(),
+		_boundingRect.left, _boundingRect.top,
+		_enableScripts, _enableSound, _looping,
+		_crop, _center
+	);
+}
 
 /////////////////////////////////////
 // Film loops
@@ -1182,6 +1025,17 @@ void FilmLoopCastMember::loadFilmLoopData(Common::SeekableReadStreamEndian &stre
 
 }
 
+Common::String FilmLoopCastMember::formatInfo() {
+	return Common::String::format(
+		"initialRect: %dx%d@%d,%d, boundingRect: %dx%d@%d,%d, frameCount: %d, subchannelCount: %d, enableSound: %d, looping: %d, crop: %d, center: %d",
+		_initialRect.width(), _initialRect.height(),
+		_initialRect.left, _initialRect.top,
+		_boundingRect.width(), _boundingRect.height(),
+		_boundingRect.left, _boundingRect.top,
+		_frames.size(), _subchannels.size(), _enableSound, _looping,
+		_crop, _center
+	);
+}
 
 /////////////////////////////////////
 // Sound
@@ -1199,6 +1053,11 @@ SoundCastMember::~SoundCastMember() {
 		delete _audio;
 }
 
+Common::String SoundCastMember::formatInfo() {
+	return Common::String::format(
+		"looping: %d", _looping
+	);
+}
 
 /////////////////////////////////////
 // Text
@@ -1395,6 +1254,7 @@ void TextCastMember::importStxt(const Stxt *stxt) {
 	_fgpalinfo3 = stxt->_style.b;
 	_ftext = stxt->_ftext;
 	_ptext = stxt->_ptext;
+	_rtext = stxt->_rtext;
 
 	// Rectifying _fontId in case of a fallback font
 	Graphics::MacFont macFont(_fontId, _fontSize, _textSlant);
@@ -1464,19 +1324,21 @@ void TextCastMember::importRTE(byte *text) {
 	//assert(rteList.size() == 3);
 	//child0 is probably font data.
 	//child1 is the raw text.
-	_ptext = _ftext = Common::String((char*)text);
+	_rtext = _ptext = _ftext = Common::String((char*)text);
 	//child2 is positional?
 }
 
-void TextCastMember::setText(const Common::U32String &text) {
+void TextCastMember::setRawText(const Common::String &text) {
 	// Do nothing if text did not change
-	if (_ptext.equals(text))
+	if (_rtext.equals(text))
 		return;
+
+	_rtext = text;
+	_ptext = Common::U32String(text);
 
 	// If text has changed, use the cached formatting from first STXT in this castmember.
 	Common::U32String formatting = Common::String::format("\001\016%04x%02x%04x%04x%04x%04x", _fontId, _textSlant, _fontSize, _fgpalinfo1, _fgpalinfo2, _fgpalinfo3);
-	_ptext = text;
-	_ftext = formatting + text;
+	_ftext = formatting + _ptext;
 	_modified = true;
 }
 
@@ -1502,6 +1364,10 @@ Common::U32String TextCastMember::getText() {
 	return _ptext;
 }
 
+Common::String TextCastMember::getRawText() {
+	return _rtext;
+}
+
 void TextCastMember::setTextSize(int textSize) {
 	if (_widget) {
 		((Graphics::MacText *)_widget)->setTextSize(textSize);
@@ -1516,6 +1382,19 @@ void TextCastMember::updateFromWidget(Graphics::MacWidget *widget) {
 	if (widget && _type == kCastText) {
 		_ptext = ((Graphics::MacText *)widget)->getEditedString();
 	}
+}
+
+Common::String TextCastMember::formatInfo() {
+	return Common::String::format(
+		"initialRect: %dx%d@%d,%d, boundingRect: %dx%d@%d,%d, foreColor: %d, backColor: %d, editable: %d, text: \"%s\"",
+		_initialRect.width(), _initialRect.height(),
+		_initialRect.left, _initialRect.top,
+		_boundingRect.width(), _boundingRect.height(),
+		_boundingRect.left, _boundingRect.top,
+		getForeColor(), getBackColor(),
+		_editable, _ptext.encode().c_str()
+	);
+
 }
 
 
@@ -1587,6 +1466,18 @@ void ShapeCastMember::setForeColor(uint32 fgCol) {
 	_modified = true;
 }
 
+Common::String ShapeCastMember::formatInfo() {
+	return Common::String::format(
+		"initialRect: %dx%d@%d,%d, boundingRect: %dx%d@%d,%d, foreColor: %d, backColor: %d, shapeType: %d, pattern: %d, fillType: %d, lineThickness: %d, lineDirection: %d, ink: %d",
+		_initialRect.width(), _initialRect.height(),
+		_initialRect.left, _initialRect.top,
+		_boundingRect.width(), _boundingRect.height(),
+		_boundingRect.left, _boundingRect.top,
+		getForeColor(), getBackColor(),
+		_shapeType, _pattern, _fillType,
+		_lineThickness, _lineDirection, _ink
+	);
+}
 
 /////////////////////////////////////
 // Script

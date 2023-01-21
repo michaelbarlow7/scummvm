@@ -212,6 +212,9 @@ void initCommonGFX() {
 		if (gameDomain->contains("filtering"))
 			g_system->setFeatureState(OSystem::kFeatureFilteringMode, ConfMan.getBool("filtering"));
 
+		if (gameDomain->contains("vsync"))
+			g_system->setFeatureState(OSystem::kFeatureVSync, ConfMan.getBool("vsync"));
+
 		if (gameDomain->contains("stretch_mode"))
 			g_system->setStretchMode(ConfMan.get("stretch_mode").c_str());
 
@@ -419,6 +422,7 @@ void initGraphics3d(int width, int height) {
 		g_system->initSize(width, height);
 		g_system->setFeatureState(OSystem::kFeatureFullscreenMode, ConfMan.getBool("fullscreen")); // TODO: Replace this with initCommonGFX()
 		g_system->setFeatureState(OSystem::kFeatureAspectRatioCorrection, ConfMan.getBool("aspect_ratio")); // TODO: Replace this with initCommonGFX()
+		g_system->setFeatureState(OSystem::kFeatureVSync, ConfMan.getBool("vsync")); // TODO: Replace this with initCommonGFX()
 		g_system->setStretchMode(ConfMan.get("stretch_mode").c_str()); // TODO: Replace this with initCommonGFX()
 	g_system->endGFXTransaction();
 }
@@ -464,12 +468,12 @@ void GUIErrorMessageFormat(const char *fmt, ...) {
 	GUIErrorMessage(msg);
 }
 
-void GUIErrorMessageFormat(Common::U32String fmt, ...) {
+void GUIErrorMessageFormatU32StringPtr(const Common::U32String *fmt, ...) {
 	Common::U32String msg("");
 
 	va_list va;
 	va_start(va, fmt);
-	Common::U32String::vformat(fmt.begin(), fmt.end(), msg, va);
+	Common::U32String::vformat(fmt->begin(), fmt->end(), msg, va);
 	va_end(va);
 
 	GUIErrorMessage(msg);

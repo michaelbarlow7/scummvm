@@ -24,7 +24,6 @@
 
 #include "common/system.h"
 #include "common/rect.h"
-#include "ultima/shared/engine/events.h"
 #include "ultima/ultima8/misc/common_types.h"
 #include "ultima/ultima8/misc/direction.h"
 
@@ -81,16 +80,23 @@ class Gump;
 
 class Mouse {
 public:
+	enum MouseButton {
+		BUTTON_NONE = 0,
+		BUTTON_LEFT = 1,
+		BUTTON_RIGHT = 2,
+		BUTTON_MIDDLE = 3,
+		MOUSE_LAST
+	};
+
 	enum MouseCursor {
 		MOUSE_NORMAL = 0,
 		MOUSE_NONE = 1,
 		MOUSE_TARGET = 2,
-		MOUSE_PENTAGRAM = 3,
+		MOUSE_WAIT = 3,
 		MOUSE_HAND = 4,
 		MOUSE_QUILL = 5,
 		MOUSE_MAGGLASS = 6,
-		MOUSE_CROSS = 7,
-		MOUSE_POINTER = 8  //!< Default pointer
+		MOUSE_CROSS = 7
 	};
 
 	enum DraggingState {
@@ -102,6 +108,7 @@ public:
 private:
 	static Mouse *_instance;
 	Common::Stack<MouseCursor> _cursors;
+	int _lastMouseFrame;
 
 	/**
 	 * Time mouse started flashing, or 0
@@ -109,7 +116,7 @@ private:
 	uint32 _flashingCursorTime;
 
 	// mouse input state
-	MButton _mouseButton[Shared::MOUSE_LAST];
+	MButton _mouseButton[MOUSE_LAST];
 
 	uint16 _mouseOverGump;
 	Common::Point _mousePos;
@@ -132,19 +139,14 @@ public:
 	~Mouse();
 
 	/**
-	 * Setup the mouse cursors
-	 */
-	void setup();
-
-	/**
 	 * Called when a mouse button is pressed down
 	 */
-	bool buttonDown(Shared::MouseButton button);
+	bool buttonDown(MouseButton button);
 
 	/**
 	 * Called when a mouse ubtton is released
 	 */
-	bool buttonUp(Shared::MouseButton button);
+	bool buttonUp(MouseButton button);
 
 	//! get mouse cursor length. 0 = short, 1 = medium, 2 = long
 	int getMouseLength(int mx, int my) const;
@@ -179,7 +181,7 @@ public:
 	//! set current mouse cursor location
 	void setMouseCoords(int mx, int my);
 
-	bool isMouseDownEvent(Shared::MouseButton button) const;
+	bool isMouseDownEvent(MouseButton button) const;
 
 	//! remove all existing cursors
 	void popAllCursors();
@@ -191,7 +193,7 @@ public:
 	void flashCrossCursor();
 
 	//! push the current mouse cursor to the stack
-	void pushMouseCursor();
+	void pushMouseCursor(MouseCursor cursor);
 
 	//! pop the last mouse cursor from the stack
 	void popMouseCursor();
@@ -215,7 +217,7 @@ public:
 	Gump *getMouseOverGump() const;
 	void resetMouseOverGump() { _mouseOverGump = 0; }
 
-	void paint();
+	void update();
 };
 
 } // End of namespace Ultima8

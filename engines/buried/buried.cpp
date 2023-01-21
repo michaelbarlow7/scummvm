@@ -31,8 +31,8 @@
 #include "common/system.h"
 #include "common/textconsole.h"
 #include "common/translation.h"
-#include "common/winexe_ne.h"
-#include "common/winexe_pe.h"
+#include "common/formats/winexe_ne.h"
+#include "common/formats/winexe_pe.h"
 #include "engines/util.h"
 #include "graphics/wincursor.h"
 #include "gui/message.h"
@@ -502,6 +502,10 @@ void BuriedEngine::pollForEvents() {
 		case Common::EVENT_RBUTTONUP: {
 			Window *window = _captureWindow ? _captureWindow : _mainWindow->childWindowAtPoint(event.mouse);
 			window->postMessage(new RButtonUpMessage(window->convertPointToLocal(event.mouse), 0));
+			break;
+		}
+		case Common::EVENT_MAINMENU: {
+			((FrameWindow *)_mainWindow)->_controlDown = false;
 			break;
 		}
 		default:

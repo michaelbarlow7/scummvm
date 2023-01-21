@@ -42,6 +42,7 @@
 #include "ultima/ultima8/misc/util.h"
 #include "ultima/ultima8/usecode/uc_machine.h"
 #include "ultima/ultima8/usecode/bit_set.h"
+#include "ultima/ultima8/world/current_map.h"
 #include "ultima/ultima8/world/world.h"
 #include "ultima/ultima8/world/camera_process.h"
 #include "ultima/ultima8/world/get_object.h"
@@ -62,16 +63,8 @@ namespace Ultima8 {
 
 Debugger *g_debugger;
 
-// Console out/err pointers
-console_ostream<char> *ppout;
-console_err_ostream<char> *pperr;
-
-Debugger::Debugger() : Shared::Debugger() {
+Debugger::Debugger() : GUI::Debugger() {
 	g_debugger = this;
-
-	// Set output pointers
-	ppout = &_strOut;
-	pperr = &_errOut;
 
 	// WARNING: Not only can the methods below be executed directly in the debugger,
 	// they also act as the methods keybindings are made to. So be wary of changing names
@@ -192,20 +185,18 @@ Debugger::Debugger() : Shared::Debugger() {
 
 	registerCmd("UCMachine::getGlobal", WRAP_METHOD(Debugger, cmdGetGlobal));
 	registerCmd("UCMachine::setGlobal", WRAP_METHOD(Debugger, cmdSetGlobal));
-#ifdef DEBUG
 	registerCmd("UCMachine::traceObjID", WRAP_METHOD(Debugger, cmdTraceObjID));
 	registerCmd("UCMachine::tracePID", WRAP_METHOD(Debugger, cmdTracePID));
 	registerCmd("UCMachine::traceClass", WRAP_METHOD(Debugger, cmdTraceClass));
-	registerCmd("UCMachine::traceEvents", WRAP_METHOD(Debugger, cmdTraceEvents));
 	registerCmd("UCMachine::traceAll", WRAP_METHOD(Debugger, cmdTraceAll));
 	registerCmd("UCMachine::stopTrace", WRAP_METHOD(Debugger, cmdStopTrace));
-#endif
 
 	registerCmd("FastAreaVisGump::toggle", WRAP_METHOD(Debugger, cmdToggleFastArea));
 	registerCmd("InverterProcess::invertScreen", WRAP_METHOD(Debugger, cmdInvertScreen));
 	registerCmd("MenuGump::showMenu", WRAP_METHOD(Debugger, cmdShowMenu));
 	registerCmd("MiniMapGump::toggle", WRAP_METHOD(Debugger, cmdToggleMinimap));
-	registerCmd("MiniMapGump::generateWholeMap", WRAP_METHOD(Debugger, cmdGenerateWholeMap));
+	registerCmd("MiniMapGump::generate", WRAP_METHOD(Debugger, cmdGenerateMinimap));
+	registerCmd("MiniMapGump::clear", WRAP_METHOD(Debugger, cmdClearMinimap));
 	registerCmd("MovieGump::play", WRAP_METHOD(Debugger, cmdPlayMovie));
 	registerCmd("MusicProcess::playMusic", WRAP_METHOD(Debugger, cmdPlayMusic));
 	registerCmd("QuitGump::verifyQuit", WRAP_METHOD(Debugger, cmdVerifyQuit));
@@ -218,8 +209,6 @@ Debugger::Debugger() : Shared::Debugger() {
 
 Debugger::~Debugger() {
 	g_debugger = nullptr;
-	ppout = nullptr;
-	pperr = nullptr;
 }
 
 
@@ -257,8 +246,17 @@ void Debugger::executeCommand(const Common::Array<Common::String> &argv) {
 
 bool Debugger::cmdSaveGame(int argc, const char **argv) {
 	if (argc == 2) {
+		if (!Ultima8Engine::get_instance()->canSaveGameStateCurrently()) {
+			debugPrintf("Saving game is currently unavailable\n");
+			return true;
+		}
+
 		// Save a _game with the given name into the quicksave slot
-		Ultima8Engine::get_instance()->saveGame(1, argv[1]);
+		Common::Error result = Ultima8Engine::get_instance()->saveGameState(1, argv[1]);
+		if (result.getCode() != Common::kNoError) {
+			debugPrintf("Saving game failed: %s\n", result.getDesc().c_str());
+			return true;
+		}
 	} else {
 		Ultima8Engine::get_instance()->saveGameDialog();
 	}
@@ -789,7 +787,8 @@ bool Debugger::cmdDumpMap(int argc, const char **argv) {
 	// Save because we're going to potentially break the game by enlarging
 	// the fast area and available object IDs.
 	int slot = Ultima8Engine::get_instance()->getAutosaveSlot();
-	if (!Ultima8Engine::get_instance()->saveGame(slot, "Pre-dumpMap save")) {
+	Common::Error result = Ultima8Engine::get_instance()->saveGameState(slot, "Pre-dumpMap save");
+	if (result.getCode() != Common::kNoError) {
 		debugPrintf("Could not dump map: pre-dumpMap save failed\n");
 		return false;
 	}
@@ -815,7 +814,8 @@ bool Debugger::cmdDumpAllMaps(int argc, const char **argv) {
 	// Save because we're going to potentially break the game by enlarging
 	// the fast area and available object IDs and changing maps
 	int slot = Ultima8Engine::get_instance()->getAutosaveSlot();
-	if (!Ultima8Engine::get_instance()->saveGame(slot, "Pre-dumpMap save")) {
+	Common::Error result = Ultima8Engine::get_instance()->saveGameState(slot, "Pre-dumpMap save");
+	if (result.getCode() != Common::kNoError) {
 		debugPrintf("Could not dump map: pre-dumpMap save failed\n");
 		return false;
 	}
@@ -870,8 +870,9 @@ bool Debugger::cmdListProcesses(int argc, const char **argv) {
 		for (ProcessIterator it = kern->_processes.begin();
 			it != kern->_processes.end(); ++it) {
 			Process *p = *it;
-			if (argc == 1 || p->_itemNum == item)
-				p->dumpInfo();
+			if (argc == 1 || p->_itemNum == item) {
+				debugPrintf("%s\n", p->dumpInfo().c_str());
+			}
 		}
 	}
 
@@ -890,7 +891,7 @@ bool Debugger::cmdProcessInfo(int argc, const char **argv) {
 		if (p == 0) {
 			debugPrintf("No such process: %d\n", procid);
 		} else {
-			p->dumpInfo();
+			debugPrintf("%s\n", p->dumpInfo().c_str());
 		}
 	}
 
@@ -1472,101 +1473,93 @@ bool Debugger::cmdObjectInfo(int argc, const char **argv) {
 			else
 				debugPrintf("No such object: %d\n", objid);
 		} else {
-			obj->dumpInfo();
+			debugPrintf("%s\n", obj->dumpInfo().c_str());
 		}
 	}
 
 	return true;
 }
 
-bool Debugger::cmdStartQuickMoveUp(int argc, const char **argv) {
-	if (Ultima8Engine::get_instance()->areCheatsEnabled()) {
-		QuickAvatarMoverProcess::startMover(-64, -64, 0, 0);
-		return false;
-	} else {
-		debugPrintf("Cheats aren't enabled\n");
+static bool _quickMoveKey(uint32 flag, const char *debugname) {
+	Ultima8Engine *engine = Ultima8Engine::get_instance();
+	if (engine->isAvatarInStasis()) {
+		g_debugger->debugPrintf("Can't %s: avatarInStasis\n", debugname);
 		return true;
 	}
+	if (!engine->areCheatsEnabled()) {
+		g_debugger->debugPrintf("Can't %s: Cheats aren't enabled\n", debugname);
+		return true;
+	}
+
+	QuickAvatarMoverProcess *proc = QuickAvatarMoverProcess::get_instance();
+	if (proc) {
+		proc->setMovementFlag(flag);
+	}
+	return false;
+}
+
+static bool _quickMoveKeyEnd(uint32 flag) {
+	Ultima8Engine *engine = Ultima8Engine::get_instance();
+	if (engine->isAvatarInStasis()) {
+		return false;
+	}
+	if (!engine->areCheatsEnabled()) {
+		return false;
+	}
+
+	QuickAvatarMoverProcess *proc = QuickAvatarMoverProcess::get_instance();
+	if (proc) {
+		proc->clearMovementFlag(flag);
+	}
+	return false;
+}
+
+bool Debugger::cmdStartQuickMoveUp(int argc, const char **argv) {
+	return _quickMoveKey(QuickAvatarMoverProcess::MOVE_UP, "move up");
 }
 
 bool Debugger::cmdStartQuickMoveDown(int argc, const char **argv) {
-	if (Ultima8Engine::get_instance()->areCheatsEnabled()) {
-		QuickAvatarMoverProcess::startMover(+64, +64, 0, 1);
-		return false;
-	} else {
-		debugPrintf("Cheats aren't enabled\n");
-		return true;
-	}
+	return _quickMoveKey(QuickAvatarMoverProcess::MOVE_DOWN, "move down");
 }
 
 bool Debugger::cmdStartQuickMoveLeft(int argc, const char **argv) {
-	if (Ultima8Engine::get_instance()->areCheatsEnabled()) {
-		QuickAvatarMoverProcess::startMover(-64, +64, 0, 2);
-		return false;
-	} else {
-		debugPrintf("Cheats aren't enabled\n");
-		return true;
-	}
+	return _quickMoveKey(QuickAvatarMoverProcess::MOVE_LEFT, "move left");
 }
 
 bool Debugger::cmdStartQuickMoveRight(int argc, const char **argv) {
-	if (Ultima8Engine::get_instance()->areCheatsEnabled()) {
-		QuickAvatarMoverProcess::startMover(+64, -64, 0, 3);
-		return false;
-	} else {
-		debugPrintf("Cheats aren't enabled\n");
-		return true;
-	}
+	return _quickMoveKey(QuickAvatarMoverProcess::MOVE_RIGHT, "move right");
 }
 
 bool Debugger::cmdStartQuickMoveAscend(int argc, const char **argv) {
-	if (Ultima8Engine::get_instance()->areCheatsEnabled()) {
-		QuickAvatarMoverProcess::startMover(0, 0, 8, 4);
-		return false;
-	} else {
-		debugPrintf("Cheats aren't enabled\n");
-		return true;
-	}
+	return _quickMoveKey(QuickAvatarMoverProcess::MOVE_ASCEND, "move ascend");
 }
 
 bool Debugger::cmdStartQuickMoveDescend(int argc, const char **argv) {
-	if (Ultima8Engine::get_instance()->areCheatsEnabled()) {
-		QuickAvatarMoverProcess::startMover(0, 0, -8, 5);
-		return false;
-	} else {
-		debugPrintf("Cheats aren't enabled\n");
-		return true;
-	}
+	return _quickMoveKey(QuickAvatarMoverProcess::MOVE_DESCEND, "move descend");
 }
 
 bool Debugger::cmdStopQuickMoveUp(int argc, const char **argv) {
-	QuickAvatarMoverProcess::terminateMover(0);
-	return false;
+	return _quickMoveKeyEnd(QuickAvatarMoverProcess::MOVE_UP);
 }
 
 bool Debugger::cmdStopQuickMoveDown(int argc, const char **argv) {
-	QuickAvatarMoverProcess::terminateMover(1);
-	return false;
+	return _quickMoveKeyEnd(QuickAvatarMoverProcess::MOVE_DOWN);
 }
 
 bool Debugger::cmdStopQuickMoveLeft(int argc, const char **argv) {
-	QuickAvatarMoverProcess::terminateMover(2);
-	return false;
+	return _quickMoveKeyEnd(QuickAvatarMoverProcess::MOVE_LEFT);
 }
 
 bool Debugger::cmdStopQuickMoveRight(int argc, const char **argv) {
-	QuickAvatarMoverProcess::terminateMover(3);
-	return false;
+	return _quickMoveKeyEnd(QuickAvatarMoverProcess::MOVE_RIGHT);
 }
 
 bool Debugger::cmdStopQuickMoveAscend(int argc, const char **argv) {
-	QuickAvatarMoverProcess::terminateMover(4);
-	return false;
+	return _quickMoveKeyEnd(QuickAvatarMoverProcess::MOVE_ASCEND);
 }
 
 bool Debugger::cmdStopQuickMoveDescend(int argc, const char **argv) {
-	QuickAvatarMoverProcess::terminateMover(5);
-	return false;
+	return _quickMoveKeyEnd(QuickAvatarMoverProcess::MOVE_DESCEND);
 }
 
 bool Debugger::cmdToggleQuarterSpeed(int argc, const char **argv) {
@@ -1616,8 +1609,6 @@ bool Debugger::cmdSetGlobal(int argc, const char **argv) {
 	debugPrintf("[%04X %02X] = %d\n", offset, size, uc->_globals->getEntries(offset, size));
 	return true;
 }
-
-#ifdef DEBUG
 
 bool Debugger::cmdTracePID(int argc, const char **argv) {
 	if (argc != 2) {
@@ -1676,15 +1667,6 @@ bool Debugger::cmdTraceAll(int argc, const char **argv) {
 	return true;
 }
 
-bool Debugger::cmdTraceEvents(int argc, const char **argv) {
-	UCMachine *uc = UCMachine::get_instance();
-	uc->_tracingEnabled = true;
-	uc->_traceEvents = true;
-
-	debugPrintf("UCMachine: tracing usecode events\n");
-	return true;
-}
-
 bool Debugger::cmdStopTrace(int argc, const char **argv) {
 	UCMachine *uc = UCMachine::get_instance();
 	uc->_traceObjIDs.clear();
@@ -1692,14 +1674,10 @@ bool Debugger::cmdStopTrace(int argc, const char **argv) {
 	uc->_traceClasses.clear();
 	uc->_tracingEnabled = false;
 	uc->_traceAll = false;
-	uc->_traceEvents = false;
 
 	debugPrintf("Trace stopped\n");
 	return true;
 }
-
-#endif
-
 
 bool Debugger::cmdVerifyQuit(int argc, const char **argv) {
 	QuitGump::verifyQuit();
@@ -1797,17 +1775,35 @@ bool Debugger::cmdToggleMinimap(int argc, const char **argv) {
 		mmg = new MiniMapGump(4, 4);
 		mmg->InitGump(0);
 		mmg->setRelativePosition(Gump::TOP_LEFT, 4, 4);
+	} else if (mmg->IsHidden()) {
+		mmg->UnhideGump();
 	} else {
-		mmg->Close();
+		mmg->HideGump();
 	}
 
 	return false;
 }
 
-bool Debugger::cmdGenerateWholeMap(int argc, const char **argv) {
-	World *world = World::get_instance();
-	CurrentMap *currentmap = world->getCurrentMap();
-	currentmap->setWholeMapFast();
+bool Debugger::cmdGenerateMinimap(int argc, const char **argv) {
+	Ultima8Engine *app = Ultima8Engine::get_instance();
+	Gump *desktop = app->getDesktopGump();
+	MiniMapGump *gump = dynamic_cast<MiniMapGump *>(desktop->FindGump<MiniMapGump>());
+
+	if (gump) {
+		gump->generate();
+	}
+	return false;
+}
+
+
+bool Debugger::cmdClearMinimap(int argc, const char **argv) {
+	Ultima8Engine *app = Ultima8Engine::get_instance();
+	Gump *desktop = app->getDesktopGump();
+	MiniMapGump *gump = dynamic_cast<MiniMapGump *>(desktop->FindGump<MiniMapGump>());
+
+	if (gump) {
+		gump->clear();
+	}
 	return false;
 }
 

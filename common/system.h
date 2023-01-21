@@ -993,6 +993,7 @@ public:
 		kTransactionFilteringFailed = (1 << 5),         /**< Failed setting the filtering mode */
 		kTransactionStretchModeSwitchFailed = (1 << 6), /**< Failed setting the stretch mode */
 		kTransactionShaderChangeFailed = (1 << 7),      /**< Failed setting the shader */
+		kTransactionVSyncFailed = (1 << 8),             /**< Failed switching vsync mode */
 	};
 
 	/**
@@ -1181,10 +1182,13 @@ public:
 	 * and then manually compose whatever graphics we want to show in the overlay.
 	 * This works because we assume the game to be "paused" whenever an overlay
 	 * is active.
+	 *
+	 * @param inGame Whether the overlay is used to display GUI or in game images
+	 *
 	 */
 
 	/** Activate the overlay mode. */
-	virtual void showOverlay() = 0;
+	virtual void showOverlay(bool inGUI = true) = 0;
 
 	/** Deactivate the overlay mode. */
 	virtual void hideOverlay() = 0;

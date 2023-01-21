@@ -438,7 +438,7 @@ bool MoviePlayerSMK::load() {
 	CursorMan.showMouse(false);
 
 	Common::String subtitlesName = Common::String::format("%s.srt", baseName);
-	loadSubtitles(subtitlesName.c_str());
+	_subtitles.loadSRTFile(subtitlesName.c_str());
 
 	return true;
 }
@@ -466,16 +466,19 @@ void MoviePlayerSMK::copyFrameToBuffer(byte *dst, uint x, uint y, uint pitch) {
 }
 
 void MoviePlayerSMK::playVideo() {
-	while (!endOfVideo() && !_skipMovie && !_vm->shouldQuit()) {
-		_subtitles.drawSubtitle(getTime(), true);
-		handleNextFrame();
-		g_system->showOverlay();
+	if (_subtitles.isLoaded()) {
 		g_system->clearOverlay();
+		g_system->showOverlay(false);
+	}
+	while (!endOfVideo() && !_skipMovie && !_vm->shouldQuit()) {
+		handleNextFrame();
 	}
 }
 
 void MoviePlayerSMK::stopVideo() {
-	g_system->hideOverlay();
+	if (_subtitles.isLoaded()) {
+		g_system->hideOverlay();
+	}
 	close();
 }
 
@@ -519,6 +522,8 @@ bool MoviePlayerSMK::processFrame() {
 		return false;
 	}
 
+	_subtitles.drawSubtitle(getTime(), false);
+
 	_vm->_system->updateScreen();
 
 	// Wait before showing the next frame
@@ -545,25 +550,25 @@ MoviePlayer *makeMoviePlayer(AGOSEngine_Feeble *vm, const char *name) {
 		memset(shortName, 0, sizeof(shortName));
 		memcpy(shortName, baseName, 6);
 
-		sprintf(filename, "%s~1.dxa", shortName);
+		Common::sprintf_s(filename, "%s~1.dxa", shortName);
 		if (Common::File::exists(filename)) {
 			memset(baseName, 0, sizeof(baseName));
 			memcpy(baseName, filename, 8);
 		}
 
-		sprintf(filename, "%s~1.smk", shortName);
+		Common::sprintf_s(filename, "%s~1.smk", shortName);
 		if (Common::File::exists(filename)) {
 			memset(baseName, 0, sizeof(baseName));
 			memcpy(baseName, filename, 8);
 		}
 	}
 
-	sprintf(filename, "%s.dxa", baseName);
+	Common::sprintf_s(filename, "%s.dxa", baseName);
 	if (Common::File::exists(filename)) {
 		return new MoviePlayerDXA(vm, baseName);
 	}
 
-	sprintf(filename, "%s.smk", baseName);
+	Common::sprintf_s(filename, "%s.smk", baseName);
 	if (Common::File::exists(filename)) {
 		return new MoviePlayerSMK(vm, baseName);
 	}

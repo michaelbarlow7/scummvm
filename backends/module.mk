@@ -251,6 +251,9 @@ endif
 
 ifeq ($(BACKEND),android)
 MODULE_OBJS += \
+	fs/android/android-fs-factory.o \
+	fs/android/android-posix-fs.o \
+	fs/android/android-saf-fs.o \
 	graphics/android/android-graphics.o \
 	graphics3d/android/android-graphics3d.o \
 	graphics3d/android/texture.o \
@@ -357,13 +360,16 @@ MODULE_OBJS += \
 	mixer/null/null-mixer.o
 endif
 
-ifeq ($(BACKEND),opendingux)
+ifdef MIYOO
+ifeq ($(MIYOO_TARGET), miyoomini)
 MODULE_OBJS += \
-	fs/posix/posix-fs.o \
-	fs/posix/posix-fs-factory.o \
-	fs/posix/posix-iostream.o \
-	fs/posix-drives/posix-drives-fs.o \
-	fs/posix-drives/posix-drives-fs-factory.o
+	graphics/miyoo/miyoomini-graphics.o
+endif
+endif
+
+ifdef OPENDINGUX
+MODULE_OBJS += \
+	graphics/opendingux/opendingux-graphics.o
 endif
 
 ifeq ($(BACKEND),openpandora)

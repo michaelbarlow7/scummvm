@@ -744,7 +744,7 @@ HSaveError ReadDynamicSprites(Stream *in, int32_t /*cmp_ver*/, const PreservedPa
 	HSaveError err;
 	const int spr_count = in->ReadInt32();
 	// ensure the sprite set is at least large enough
-	// to accomodate top dynamic sprite index
+	// to accommodate top dynamic sprite index
 	const int top_index = in->ReadInt32();
 	_GP(spriteset).EnlargeTo(top_index);
 	for (int i = 0; i < spr_count; ++i) {
@@ -773,7 +773,7 @@ HSaveError ReadOverlays(Stream *in, int32_t cmp_ver, const PreservedParams & /*p
 		bool has_bitmap;
 		over.ReadFromFile(in, has_bitmap, cmp_ver);
 		if (has_bitmap)
-			over.SetImage(read_serialized_bitmap(in));
+			over.SetImage(read_serialized_bitmap(in), over.offsetX, over.offsetY);
 		if (over.scaleWidth <= 0 || over.scaleHeight <= 0) {
 			over.scaleWidth = over.GetImage()->GetWidth();
 			over.scaleHeight = over.GetImage()->GetHeight();

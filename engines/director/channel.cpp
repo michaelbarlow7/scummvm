@@ -107,11 +107,17 @@ Channel::~Channel() {
 
 DirectorPlotData Channel::getPlotData() {
 	DirectorPlotData pd(g_director, _sprite->_spriteType, _sprite->_ink, _sprite->_blend, _sprite->getBackColor(), _sprite->getForeColor());
-	pd.colorWhite = 255;
-	pd.colorBlack = 0;
+	pd.colorWhite = 0;
+	pd.colorBlack = 255;
 	pd.dst = nullptr;
 
 	pd.srf = getSurface();
+	if (_sprite->_spriteType == kBitmapSprite &&
+		_sprite->_cast && _sprite->_cast->_type == kCastBitmap &&
+		((BitmapCastMember *)_sprite->_cast)->_bitsPerPixel == 1) {
+		// Add override flag for 1-bit images
+		pd.oneBitImage = true;
+	}
 	if (!pd.srf && _sprite->_spriteType != kBitmapSprite) {
 		// Shapes come colourized from macDrawPixel
 		pd.ms = _sprite->getShape();
@@ -156,7 +162,12 @@ const Graphics::Surface *Channel::getMask(bool forceMatte) {
 		// as they already have all non-enclosed white pixels transparent.
 		// Matte on text has a trivial enough effect to not worry about implementing.
 		if (_sprite->_cast->_type == kCastBitmap) {
-			return ((BitmapCastMember *)_sprite->_cast)->getMatte(bbox);
+			BitmapCastMember *bitmap = ((BitmapCastMember *)_sprite->_cast);
+			// 1-bit images only require a matte for the matte ink type
+			if (bitmap->_bitsPerPixel == 1 && _sprite->_ink != kInkTypeMatte) {
+				return nullptr;
+			}
+			return bitmap->getMatte(bbox);
 		} else {
 			return nullptr;
 		}
@@ -534,26 +545,35 @@ void Channel::replaceSprite(Sprite *nextSprite) {
 }
 
 void Channel::setWidth(int w) {
-	if (_sprite->_puppet && _sprite->_stretch) {
+	if (_sprite->_puppet) {
+		if (!(_sprite->_cast && _sprite->_cast->_type == kCastShape) && !_sprite->_stretch)
+			return;
 		_width = MAX<int>(w, 0);
 	}
 }
 
 void Channel::setHeight(int h) {
-	if (_sprite->_puppet && _sprite->_stretch) {
+	if (_sprite->_puppet) {
+		if (!(_sprite->_cast && _sprite->_cast->_type == kCastShape) && !_sprite->_stretch)
+			return;
 		_height = MAX<int>(h, 0);
 	}
 }
 
 void Channel::setBbox(int l, int t, int r, int b) {
-	if (_sprite->_puppet && _sprite->_stretch) {
+	if (_sprite->_puppet) {
+		if (!(_sprite->_cast && _sprite->_cast->_type == kCastShape) && !_sprite->_stretch)
+			return;
 		_width = r - l;
 		_height = b - t;
 
-		_currentPoint.x = l;
-		_currentPoint.y = t;
+		_currentPoint.x = (int16)((l + r) / 2);
+		_currentPoint.y = (int16)((t + b) / 2);
 
 		addRegistrationOffset(_currentPoint, true);
+
+		_currentPoint.x -= (int16)((_sprite->_width) / 2);
+		_currentPoint.y -= (int16)((_sprite->_height) / 2);
 	}
 }
 

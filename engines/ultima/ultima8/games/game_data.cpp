@@ -165,7 +165,7 @@ void GameData::loadTranslation() {
 			translationfile = "u8japanese.ini";
 			break;
 		default:
-			perr << "Unknown language." << Std::endl;
+			warning("Unknown language.");
 			break;
 		}
 	}
@@ -173,7 +173,7 @@ void GameData::loadTranslation() {
 	if (!translationfile.empty()) {
 		translationfile = "data/" + translationfile;
 
-		pout << "Loading translation: " << translationfile << Std::endl;
+		debug(MM_INFO, "Loading translation: %s", translationfile.c_str());
 
 		config->readConfigFile(translationfile, "language");
 	}
@@ -207,7 +207,7 @@ FrameID GameData::translate(FrameID f) {
 	}
 
 	char buf[100];
-	sprintf(buf, "%d,%d", f._shapeNum, f._frameNum);
+	Common::sprintf_s(buf, "%d,%d", f._shapeNum, f._frameNum);
 
 	istring key = buf;
 	Std::string trans;
@@ -219,7 +219,7 @@ FrameID GameData::translate(FrameID f) {
 	t._flexId = f._flexId;
 	int n = sscanf(trans.c_str(), "%u,%u", &t._shapeNum, &t._frameNum);
 	if (n != 2) {
-		perr << "Invalid shape translation: " << trans << Std::endl;
+		warning("Invalid shape translation: %s", trans.c_str());
 		return f;
 	}
 
@@ -251,7 +251,7 @@ void GameData::loadU8Data() {
 	_mainUsecode = new UsecodeFlex(uds);
 
 	// Load main shapes
-	pout << "Load Shapes" << Std::endl;
+	debug(MM_INFO, "Load Shapes");
 	Common::SeekableReadStream *sf = filesystem->ReadFile("static/u8shapes.flx");
 	if (!sf) sf = filesystem->ReadFile("static/u8shapes.cmp");
 
@@ -385,7 +385,7 @@ void GameData::setupJPOverrides() {
 		Std::vector<Std::string> vals;
 		SplitString(fontdesc, ',', vals);
 		if (vals.size() != 2) {
-			perr << "Invalid jpfont override: " << fontdesc << Std::endl;
+			warning("Invalid jpfont override: %s", fontdesc.c_str());
 			continue;
 		}
 
@@ -393,8 +393,7 @@ void GameData::setupJPOverrides() {
 		uint32 col32 = strtol(vals[1].c_str(), 0, 0);
 
 		if (!fontmanager->addJPOverride(fontnum, jpfontnum, col32)) {
-			perr << "failed to setup jpfont override for font " << fontnum
-			     << Std::endl;
+			warning("failed to setup jpfont override for font %d", fontnum);
 		}
 	}
 
@@ -418,7 +417,7 @@ void GameData::setupTTFOverrides(const char *category, bool SJIS) {
 		Std::vector<Std::string> vals;
 		SplitString(fontdesc, ',', vals);
 		if (vals.size() != 4) {
-			perr << "Invalid ttf override: " << fontdesc << Std::endl;
+			warning("Invalid ttf override: %s", fontdesc.c_str());
 			continue;
 		}
 
@@ -428,9 +427,8 @@ void GameData::setupTTFOverrides(const char *category, bool SJIS) {
 		int border = atoi(vals[3].c_str());
 
 		if (!fontmanager->addTTFOverride(fontnum, filename, pointsize,
-		                                 col32, border, SJIS)) {
-			perr << "failed to setup ttf override for font " << fontnum
-			     << Std::endl;
+										 col32, border, SJIS)) {
+			warning("failed to setup ttf override for font %d", fontnum);
 		}
 	}
 }
@@ -453,7 +451,7 @@ SpeechFlex *GameData::getSpeechFlex(uint32 shapeNum) {
 
 	char langletter = _gameInfo->getLanguageFileLetter();
 	if (!langletter) {
-		perr << "GameData::getSpeechFlex: Unknown language." << Std::endl;
+		warning("GameData::getSpeechFlex: Unknown language.");
 		delete s;
 		return nullptr;
 	}
@@ -529,7 +527,7 @@ void GameData::loadRemorseData() {
 	_mainUsecode = new UsecodeFlex(uds);
 
 	// Load main shapes
-	pout << "Load Shapes" << Std::endl;
+	debug(MM_INFO, "Load Shapes");
 	Common::SeekableReadStream *sf = filesystem->ReadFile("static/shapes.flx");
 
 	if (!sf)

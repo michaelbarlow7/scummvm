@@ -107,7 +107,7 @@ WindowParameters::WindowParameters(Runtime *wp_runtime, int32 wp_x, int32 wp_y, 
 }
 
 Window::Window(const WindowParameters &windowParams)
-	: _runtime(windowParams.runtime), _x(windowParams.x), _y(windowParams.y), _strata(0), _isMouseTransparent(false) {
+	: _runtime(windowParams.runtime), _x(windowParams.x), _y(windowParams.y), _strata(0), _isMouseTransparent(false), _isMouseVisible(true) {
 	_surface.reset(new Graphics::ManagedSurface(windowParams.width, windowParams.height, windowParams.format));
 }
 
@@ -157,6 +157,14 @@ void Window::setCursorGraphic(const Common::SharedPtr<CursorGraphic>& cursor) {
 	_cursor = cursor;
 }
 
+bool Window::getMouseVisible() const {
+	return _isMouseVisible;
+}
+
+void Window::setMouseVisible(bool visible) {
+	_isMouseVisible = visible;
+}
+
 void Window::setStrata(int strata) {
 	_strata = strata;
 }
@@ -196,6 +204,9 @@ void Window::onMouseUp(int32 x, int32 y, int mouseButton) {
 }
 
 void Window::onKeyboardEvent(const Common::EventType evtType, bool repeat, const Common::KeyState &keyEvt) {
+}
+
+void Window::onAction(Actions::Action action) {
 }
 
 namespace Render {
@@ -577,8 +588,8 @@ void convert16To32(Graphics::ManagedSurface &destSurface, const Graphics::Manage
 	size_t h = srcSurface.h;
 
 	for (size_t y = 0; y < h; y++) {
-		const uint32 *srcRow = static_cast<const uint32 *>(srcSurface.getBasePtr(0, y));
-		uint16 *destRow = static_cast<uint16 *>(destSurface.getBasePtr(0, y));
+		const uint16 *srcRow = static_cast<const uint16 *>(srcSurface.getBasePtr(0, y));
+		uint32 *destRow = static_cast<uint32 *>(destSurface.getBasePtr(0, y));
 
 		for (size_t x = 0; x < w; x++) {
 			uint32 packed16 = srcRow[x];
@@ -589,7 +600,7 @@ void convert16To32(Graphics::ManagedSurface &destSurface, const Graphics::Manage
 			r = expand5To8(r);
 			g = expand5To8(g);
 			b = expand5To8(b);
-			destRow[x] = (r << destFmt.rShift) | (g << destFmt.gShift) | (b << destFmt.bShift);
+			destRow[x] = (r << destFmt.rShift) | (g << destFmt.gShift) | (b << destFmt.bShift) | (0xffu << destFmt.aShift);
 		}
 	}
 }

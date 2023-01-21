@@ -236,12 +236,13 @@ public:
 
 	void resetSurface(ColorDepthMode colorDepth, const Common::SharedPtr<Graphics::ManagedSurface> &surface);
 
+	ColorDepthMode getOriginalColorDepth() const;
+
 private:
 	Common::SharedPtr<Graphics::ManagedSurface> _surface;
 	Common::SharedPtr<Graphics::ManagedSurface> _optimizedSurface;
 
 	ColorDepthMode _colorDepth;
-	bool _isOptimized;
 };
 
 class ImageAsset : public Asset {

@@ -119,7 +119,7 @@ bool MemoryReadStream::seek(int64 offs, int whence) {
 	case SEEK_SET:
 		// Fall through
 	default:
-		_ptr = _ptrOrig + offs;
+		_ptr = _ptrOrig.get() + offs;
 		_pos = offs;
 		break;
 
@@ -579,6 +579,11 @@ WriteStream *wrapBufferedWriteStream(WriteStream *parentStream, uint32 bufSize) 
 	if (parentStream)
 		return new BufferedWriteStream(parentStream, bufSize);
 	return nullptr;
+}
+
+uint32 SafeMutexedSeekableSubReadStream::read(void *dataPtr, uint32 dataSize) {
+	Common::StackLock lock(_mutex);
+	return Common::SafeSeekableSubReadStream::read(dataPtr, dataSize);
 }
 
 } // End of namespace Common

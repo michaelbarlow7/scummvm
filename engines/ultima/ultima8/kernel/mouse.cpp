@@ -20,6 +20,7 @@
  */
 
 #include "graphics/cursorman.h"
+#include "ultima/ultima.h"
 #include "ultima/ultima8/kernel/mouse.h"
 #include "ultima/ultima8/misc/pent_include.h"
 #include "ultima/ultima8/games/game_data.h"
@@ -29,28 +30,30 @@
 #include "ultima/ultima8/misc/direction_util.h"
 #include "ultima/ultima8/world/get_object.h"
 #include "ultima/ultima8/world/actors/main_actor.h"
+#include "ultima/ultima8/graphics/shape.h"
+#include "ultima/ultima8/graphics/shape_frame.h"
+#include "ultima/ultima8/graphics/palette.h"
 
 namespace Ultima {
 namespace Ultima8 {
 
 Mouse *Mouse::_instance = nullptr;
 
-Mouse::Mouse() : _flashingCursorTime(0), _mouseOverGump(0),
+Mouse::Mouse() : _lastMouseFrame(-1), _flashingCursorTime(0), _mouseOverGump(0),
 		_dragging(DRAG_NOT), _dragging_objId(0), _draggingItem_startGump(0),
 		_draggingItem_lastGump(0) {
 	_instance = this;
+
+	_cursors.push(MOUSE_NONE);
+	CursorMan.showMouse(false);
 }
 
 Mouse::~Mouse() {
 	_instance = nullptr;
 }
 
-void Mouse::setup() {
-	pushMouseCursor();
-}
-
-bool Mouse::buttonDown(Shared::MouseButton button) {
-	assert(button != Shared::MOUSE_LAST);
+bool Mouse::buttonDown(MouseButton button) {
+	assert(button != MOUSE_LAST);
 	bool handled = false;
 	uint32 now = g_system->getMillis();
 
@@ -88,8 +91,8 @@ bool Mouse::buttonDown(Shared::MouseButton button) {
 	return handled;
 }
 
-bool Mouse::buttonUp(Shared::MouseButton button) {
-	assert(button != Shared::MOUSE_LAST);
+bool Mouse::buttonUp(MouseButton button) {
+	assert(button != MOUSE_LAST);
 	bool handled = false;
 
 	_mouseButton[button].clearState(MBS_DOWN);
@@ -109,7 +112,7 @@ bool Mouse::buttonUp(Shared::MouseButton button) {
 		handled = true;
 	}
 
-	if (button == Shared::BUTTON_LEFT && _dragging != Mouse::DRAG_NOT) {
+	if (button == BUTTON_LEFT && _dragging != Mouse::DRAG_NOT) {
 		stopDragging(_mousePos.x, _mousePos.y);
 		handled = true;
 	}
@@ -119,10 +122,11 @@ bool Mouse::buttonUp(Shared::MouseButton button) {
 
 void Mouse::popAllCursors() {
 	_cursors.clear();
-	CursorMan.popAllCursors();
+	_cursors.push(MOUSE_NONE);
+	update();
 }
 
-bool Mouse::isMouseDownEvent(Shared::MouseButton button) const {
+bool Mouse::isMouseDownEvent(MouseButton button) const {
 	return _mouseButton[button].isState(MBS_DOWN);
 }
 
@@ -130,10 +134,6 @@ int Mouse::getMouseLength(int mx, int my) const {
 	Rect dims;
 	RenderSurface *screen = Ultima8Engine::get_instance()->getRenderScreen();
 	screen->GetSurfaceDims(dims);
-
-	// For now, reference point is (near) the center of the screen
-	int dx = abs(mx - dims.width() / 2);
-	int dy = abs((dims.height() / 2 + (dims.height() * 14 / 200)) - my); //! constant
 
 	//
 	// The original game switches cursors from small -> medium -> large on
@@ -143,19 +143,25 @@ int Mouse::getMouseLength(int mx, int my) const {
 	// Modern players may be in a window so give them a little bit more
 	// space to make the large cursor without having to hit the edge.
 	//
-	int xshort = (dims.width() * 30 / 320);
-	int xmed = (dims.width() * 100 / 320);
-	int yshort = (dims.height() * 30 / 320);
-	int ymed = (dims.height() * 100 / 320);
 
-	// determine length of arrow
-	if (dx > xmed || dy > ymed) {
+	// Reference point is the center of the screen
+	int dx = abs(mx - dims.width() / 2);
+	int dy = abs((dims.height() / 2) - my);
+	int xmed = dims.width() * 100 / 320;
+	int ymed = dims.height() * 100 / 320;
+
+	if (dx > xmed || dy > ymed)
 		return 2;
-	} else if (dx > xshort || dy > yshort) {
+
+	// For short cursor, reference point is near the avatar's feet
+	dy = abs((dims.height() / 2 + (dims.height() * 14 / 200)) - my); //! constant
+	int xshort = dims.width() * 30 / 320;
+	int yshort = dims.height() * 30 / 320;
+
+	if (dx > xshort || dy > yshort)
 		return 1;
-	} else {
-		return 0;
-	}
+
+	return 0;
 }
 
 Direction Mouse::getMouseDirectionWorld(int mx, int my) const {
@@ -206,9 +212,11 @@ int Mouse::getMouseFrame() {
 			return -1;
 
 		bool combat = false;
+		bool combatRun = false;
 		const MainActor *av = getMainActor();
 		if (av) {
 			combat = av->isInCombat();
+			combatRun = av->hasActorFlags(Actor::ACT_COMBATRUN);
 		}
 
 		// Calculate frame based on direction
@@ -221,19 +229,18 @@ int Mouse::getMouseFrame() {
 		 *    2             16
 		 *  combat          25
 		 **/
-		int offset = getMouseLength() * 8;
-		if (combat && offset != 16) //combat mouse is off if running
-			offset = 25;
+		int offset = 25;
+		if (!combat || combatRun) //combat mouse is off if running
+			offset = getMouseLength() * 8;
 		return frame + offset;
 	}
-					 //!! constants...
+
+	//!! constants...
 	case MOUSE_NONE:
 		return -1;
-	case MOUSE_POINTER:
-		return -2;
 	case MOUSE_TARGET:
 		return 34;
-	case MOUSE_PENTAGRAM:
+	case MOUSE_WAIT:
 		return 35;
 	case MOUSE_HAND:
 		return 36;
@@ -322,9 +329,9 @@ void Mouse::setMouseCoords(int mx, int my) {
 	}
 
 	if (_dragging == DRAG_NOT) {
-		if (_mouseButton[Shared::BUTTON_LEFT].isState(MBS_DOWN)) {
-			int startx = _mouseButton[Shared::BUTTON_LEFT]._downPoint.x;
-			int starty = _mouseButton[Shared::BUTTON_LEFT]._downPoint.y;
+		if (_mouseButton[BUTTON_LEFT].isState(MBS_DOWN)) {
+			int startx = _mouseButton[BUTTON_LEFT]._downPoint.x;
+			int starty = _mouseButton[BUTTON_LEFT]._downPoint.y;
 			if (ABS(startx - mx) > 2 ||
 				ABS(starty - my) > 2) {
 				startDragging(startx, starty);
@@ -340,18 +347,21 @@ void Mouse::setMouseCoords(int mx, int my) {
 void Mouse::setMouseCursor(MouseCursor cursor) {
 	_cursors.pop();
 	_cursors.push(cursor);
+	update();
 }
 
 void Mouse::flashCrossCursor() {
 	_flashingCursorTime = g_system->getMillis();
 }
 
-void Mouse::pushMouseCursor() {
-	_cursors.push(MOUSE_NORMAL);
+void Mouse::pushMouseCursor(MouseCursor cursor) {
+	_cursors.push(cursor);
+	update();
 }
 
 void Mouse::popMouseCursor() {
 	_cursors.pop();
+	update();
 }
 
 void Mouse::startDragging(int startx, int starty) {
@@ -365,11 +375,13 @@ void Mouse::startDragging(int startx, int starty) {
 
 	// for a Gump, notify the Gump's parent that we started _dragging:
 	if (gump) {
+		debugC(kDebugObject, "Dragging gump %u (class=%s)", _dragging_objId, gump->GetClassType()._className);
+
 		Gump *parent = gump->GetParent();
 		assert(parent); // can't drag root gump
 		int32 px = startx, py = starty;
 		parent->ScreenSpaceToGump(px, py);
-		if (gump->IsDraggable() && parent->StartDraggingChild(gump, px, py))
+		if (gump->IsDraggable() && gump->onDragStart(px, py))
 			_dragging = DRAG_OK;
 		else {
 			_dragging_objId = 0;
@@ -377,6 +389,7 @@ void Mouse::startDragging(int startx, int starty) {
 		}
 	} else if (item) {
 		// for an Item, notify the gump the item is in that we started _dragging
+		debugC(kDebugObject, "Dragging item %u (class=%s)", _dragging_objId, item->GetClassType()._className);
 
 		// find gump item was in
 		gump = desktopGump->FindGump(startx, starty);
@@ -399,18 +412,12 @@ void Mouse::startDragging(int startx, int starty) {
 		_dragging = DRAG_INVALID;
 	}
 
-#if 0
-	Object *obj = ObjectManager::get_instance()->getObject(_dragging_objId);
-	perr << "Dragging object " << _dragging_objId << " (class=" << (obj ? obj->GetClassType().class_name : "NULL") << ")" << Std::endl;
-#endif
-
-	pushMouseCursor();
-	setMouseCursor(MOUSE_NORMAL);
+	pushMouseCursor(MOUSE_NORMAL);
 
 	// pause the kernel
 	Kernel::get_instance()->pause();
 
-	_mouseButton[Shared::BUTTON_LEFT].setState(MBS_HANDLED);
+	_mouseButton[BUTTON_LEFT].setState(MBS_HANDLED);
 
 	if (_dragging == DRAG_INVALID) {
 		setMouseCursor(MOUSE_CROSS);
@@ -429,7 +436,7 @@ void Mouse::moveDragging(int mx, int my) {
 		assert(parent); // can't drag root gump
 		int32 px = mx, py = my;
 		parent->ScreenSpaceToGump(px, py);
-		parent->DraggingChild(gump, px, py);
+		gump->onDrag(px, py);
 	} else {
 		// for an item, notify the gump it's on
 		if (item) {
@@ -463,7 +470,7 @@ void Mouse::moveDragging(int mx, int my) {
 
 
 void Mouse::stopDragging(int mx, int my) {
-	//	perr << "Dropping object " << _dragging_objId << Std::endl;
+	debugC(kDebugObject, "Dropping object %u", _dragging_objId);
 
 	Gump *gump = getGump(_dragging_objId);
 	Item *item = getItem(_dragging_objId);
@@ -471,7 +478,9 @@ void Mouse::stopDragging(int mx, int my) {
 	if (gump) {
 		Gump *parent = gump->GetParent();
 		assert(parent); // can't drag root gump
-		parent->StopDraggingChild(gump);
+		int32 px = mx, py = my;
+		parent->ScreenSpaceToGump(px, py);
+		gump->onDragStop(px, py);
 	} else if (item) {
 		// for an item: notify gumps
 		if (_dragging != DRAG_INVALID) {
@@ -509,7 +518,7 @@ void Mouse::stopDragging(int mx, int my) {
 }
 
 void Mouse::handleDelayedEvents() {
-	for (int button = 0; button < Shared::MOUSE_LAST; ++button) {
+	for (int button = 0; button < MOUSE_LAST; ++button) {
 		if (!(_mouseButton[button]._state & (MBS_HANDLED | MBS_DOWN)) &&
 			!_mouseButton[button].lastWithinDblClkTimeout()) {
 			Gump *gump = getGump(_mouseButton[button]._downGump);
@@ -533,18 +542,25 @@ Gump *Mouse::getMouseOverGump() const {
 	return getGump(_mouseOverGump);
 }
 
-void Mouse::paint() {
-	RenderSurface *screen = Ultima8Engine::get_instance()->getRenderScreen();
+void Mouse::update() {
 	GameData *gamedata = GameData::get_instance();
-
 	if (!gamedata)
 		return;
 
 	const Shape *mouse = gamedata->getMouse();
 	if (mouse) {
 		int frame = getMouseFrame();
-		if (frame >= 0) {
-			screen->Paint(mouse, frame, _mousePos.x, _mousePos.y, true);
+		if (frame != _lastMouseFrame) {
+			_lastMouseFrame = frame;
+
+			if (frame >= 0 && (uint)frame < mouse->frameCount()) {
+				const ShapeFrame *f = mouse->getFrame(frame);
+				CursorMan.replaceCursor(f->_pixels, f->_width, f->_height, f->_xoff, f->_yoff, f->_keycolor);
+				CursorMan.replaceCursorPalette(mouse->getPalette()->_palette, 0, 256);
+				CursorMan.showMouse(true);
+			} else {
+				CursorMan.showMouse(false);
+			}
 		}
 	}
 }

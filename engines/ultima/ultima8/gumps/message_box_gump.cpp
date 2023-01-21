@@ -102,8 +102,7 @@ void MessageBoxGump::InitGump(Gump *newparent, bool take_focus) {
 	}
 
 	Mouse *mouse = Mouse::get_instance();
-	mouse->pushMouseCursor();
-	mouse->setMouseCursor(Mouse::MOUSE_POINTER);
+	mouse->pushMouseCursor(Mouse::MOUSE_HAND);
 }
 
 void MessageBoxGump::Close(bool no_del) {
@@ -115,7 +114,7 @@ void MessageBoxGump::Close(bool no_del) {
 
 void MessageBoxGump::PaintThis(RenderSurface *surf, int32 lerp_factor, bool /*scaled*/) {
 	// Background is partially transparent
-	surf->FillBlended(0x80000000, 0, 0, _dims.width(), _dims.height());
+	surf->FillBlended(0x80000000, _dims);
 
 	uint32 line_colour = 0xFFFFFFFF;
 	if (!IsFocus()) line_colour = 0xFF7F7F7F;

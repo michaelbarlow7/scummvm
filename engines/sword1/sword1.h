@@ -30,6 +30,8 @@
 #include "sword1/sworddefs.h"
 #include "sword1/console.h"
 
+struct ADGameDescription;
+
 /**
  * This is the namespace of the Sword1 engine.
  *
@@ -38,11 +40,8 @@
  * Games using this engine:
  * - Broken Sword: The Shadow of the Templars
  */
-namespace Sword1 {
 
-enum {
-	GF_DEMO = 1 << 0
-};
+namespace Sword1 {
 
 enum ControlPanelMode {
 	CP_NORMAL = 0,
@@ -82,7 +81,7 @@ struct SystemVars {
 class SwordEngine : public Engine {
 	friend class SwordConsole;
 public:
-	SwordEngine(OSystem *syst);
+	SwordEngine(OSystem *syst, const ADGameDescription *gameDesc);
 	~SwordEngine() override;
 	static SystemVars _systemVars;
 	void reinitialize();

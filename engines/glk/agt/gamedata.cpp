@@ -323,8 +323,8 @@ const opdef illegal_def = a(ILLEGAL);
    The last table entry is now marked by a new value of -1.*/
 
 /* Versions of the command set:
-	v1.21 apparantly has a compatible command set w/ 1.7 (!)
-	  [except that their maxcmd is apparantly 22, not 30]
+	v1.21 apparently has a compatible command set w/ 1.7 (!)
+	  [except that their maxcmd is apparently 22, not 30]
 	1.0 doesn't; it seems to have an EOC code of 154, as opposed to
 	165 or so.
 	1.18 seems to be slightly different from 1.7, but seemingly only
@@ -642,7 +642,7 @@ static word add0_dict(const char *s) {
 			dict[i] = (dict[i] - dictstr) + newstr;
 		dictstr = newstr;
 	}
-	strcpy(dictstr + dictstrptr, s); /* Copy word into memory */
+	Common::strcpy_s(dictstr + dictstrptr, dictstrsize - dictstrptr, s); /* Copy word into memory */
 	dict[dp] = dictstr + dictstrptr;
 	dictstrptr = newptr;
 
@@ -691,7 +691,7 @@ static void init0_dict(void)
 
 	dict = (char **)rmalloc(sizeof(char *));
 	dictstr = (char *)rmalloc(DICT_GRAN);
-	strcpy(dictstr, "any");
+	Common::strcpy_s(dictstr, DICT_GRAN, "any");
 	dict[0] = dictstr;
 
 	dictstrptr = 4; /* Point just after 'any' */
@@ -886,13 +886,13 @@ void reinit_dict(void)
 	set_verbflag(); /* Do additional verbflag initialization */
 
 	for (i = 0; i < DVERB; i++) {
-		sprintf(buff, "dummy_verb%d", i + 1);
+		Common::sprintf_s(buff, "dummy_verb%d", i + 1);
 		auxsyn[i + BASE_VERB] = synptr;
 		addsyn(add0_dict(buff));
 		addsyn(-1);
 	}
 	for (i = 0; i < MAX_SUB; i++) {
-		sprintf(buff, "subroutine%d", i + 1);
+		Common::sprintf_s(buff, "subroutine%d", i + 1);
 		auxsyn[i + BASE_VERB + DVERB] = synptr;
 		addsyn(sub_name[i] = add0_dict(buff));
 		addsyn(-1);
@@ -1095,9 +1095,10 @@ char *objname(int i) { /* returns malloc'd name string of object i */
 		return concdup(dict[adjw], dict[nounw]);
 	}
 	/* At this point we can't get a name: return ILLn. */
-	s = (char *)rmalloc(3 + 1 + (5 * sizeof(int)) / 2 + 1);
+	const size_t ln = 3 + 1 + (5 * sizeof(int)) / 2 + 1;
+	s = (char *)rmalloc(ln);
 	/* Make sure we have enough space in case i is big */
-	sprintf(s, "ILL%d", i);
+	Common::sprintf_s(s, ln, "ILL%d", i);
 	return s;
 }
 
@@ -1355,7 +1356,7 @@ const opdef *get_opdef(integer op) {
 
 long new_str(char *buff, int max_leng, rbool pasc)
 /* Stores the (up to leng) characters of a string
-  into our master string space (enlarging it if neccessary)
+  into our master string space (enlarging it if necessary)
   and returns the offset into the array.
   pasc=1 ==> pascal-style string
   pasc=0 ==> C-style string; ignore max_leng and NONE strings
@@ -1386,7 +1387,7 @@ long new_str(char *buff, int max_leng, rbool pasc)
 			}
 		}
 
-	p = ss_end; /* Remember begining of string */
+	p = ss_end; /* Remember beginning of string */
 	for (i = 0; i < leng;)
 		static_str[ss_end++] = fixchar[(uchar)buff[pasc + (i++)]];
 	static_str[ss_end++] = 0;

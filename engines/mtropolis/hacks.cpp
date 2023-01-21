@@ -40,6 +40,9 @@ Hacks::Hacks() {
 	removeQuickTimeEdits = false;
 	midiVolumeScale = 256;
 	minTransitionDuration = 0;
+	ignoreMToonMaintainRateFlag = false;
+	mtiVariableReferencesHack = false;
+	mtiSceneReturnHack = false;
 }
 
 Hacks::~Hacks() {
@@ -430,7 +433,7 @@ void addObsidianImprovedWidescreen(const MTropolisGameDescription &desc, Hacks &
 			// Bureau documents
 			// 100 area (booths)
 			0x4e2d9e,
-			0x4de654,
+			0x4dfa22,
 
 			// 199 area (booths hint room)
 			0x4e2555,
@@ -527,7 +530,7 @@ void addObsidianImprovedWidescreen(const MTropolisGameDescription &desc, Hacks &
 			0x4e55cc,
 
 			// 500 area (Immediate Action)
-			0x4a2e7b,
+			0x4e2e7b,
 			0x4e0710,
 
 			// 800 area (bookshelves)
@@ -790,7 +793,7 @@ void ObsidianAutoSaveVarsState::resyncAllVars(Runtime *runtime) {
 		const VariableModifier *var = findVar(runtime, it->_key);
 		if (var) {
 			DynamicValue varValue;
-			var->varGetValue(nullptr, varValue);
+			var->varGetValue(varValue);
 			assert(varValue.getType() == DynamicValueTypes::kBoolean);
 
 			it->_value = varValue.getBool();
@@ -852,7 +855,7 @@ void ObsidianAutoSaveSceneTransitionHooks::onSceneTransitionEnded(Runtime *runti
 			const VariableModifier *var = _varsState->findVar(runtime, varName);
 			if (var) {
 				DynamicValue varValue;
-				var->varGetValue(nullptr, varValue);
+				var->varGetValue(varValue);
 				assert(varValue.getType() == DynamicValueTypes::kBoolean);
 
 				passedLatchTest = varValue.getBool();
@@ -878,10 +881,10 @@ void ObsidianAutoSaveSceneTransitionHooks::onSceneTransitionEnded(Runtime *runti
 
 		if (saveVar && saveVar->isModifier()) {
 			Modifier *modifier = static_cast<Modifier *>(saveVar.get());
-			Common::SharedPtr<ModifierSaveLoad> saveLoad = modifier->getSaveLoad();
+			Common::SharedPtr<ModifierSaveLoad> saveLoad = modifier->getSaveLoad(runtime);
 
 			if (saveLoad) {
-				CompoundVarSaver saver(saveVar.get());
+				CompoundVarSaver saver(runtime, saveVar.get());
 				_autoSaveProvider->autoSave(&saver);
 
 				_varsState->resyncAllVars(runtime);
@@ -983,7 +986,7 @@ bool ObsidianSaveLoadMechanism::canSaveNow(Runtime *runtime) {
 		return false;
 
 	DynamicValue bEscValue;
-	static_cast<VariableModifier *>(bEscVar)->varGetValue(nullptr, bEscValue);
+	static_cast<VariableModifier *>(bEscVar)->varGetValue(bEscValue);
 
 	if (bEscValue.getType() != DynamicValueTypes::kBoolean || !bEscValue.getBool())
 		return false;
@@ -1007,8 +1010,8 @@ Common::SharedPtr<ISaveWriter> ObsidianSaveLoadMechanism::createSaveWriter(Runti
 	if (!cgstCompoundVar)
 		return nullptr;
 
-	if (cgstCompoundVar->getSaveLoad())
-		return Common::SharedPtr<CompoundVarSaver>(new CompoundVarSaver(cgstCompoundVar));
+	if (cgstCompoundVar->getSaveLoad(runtime))
+		return Common::SharedPtr<CompoundVarSaver>(new CompoundVarSaver(runtime, cgstCompoundVar));
 
 	return nullptr;
 }
@@ -1016,6 +1019,37 @@ Common::SharedPtr<ISaveWriter> ObsidianSaveLoadMechanism::createSaveWriter(Runti
 void addObsidianSaveMechanism(const MTropolisGameDescription &desc, Hacks &hacks) {
 	Common::SharedPtr<ObsidianSaveLoadMechanism> mechanism(new ObsidianSaveLoadMechanism());
 	hacks.addSaveLoadMechanismHooks(mechanism);
+}
+
+void addMTIQuirks(const MTropolisGameDescription &desc, Hacks &hacks) {
+	// MTI uses a lot of "maintain rate" mToons at 10Hz.  This means their frame timer resets on every frame advance, and
+	// is supposed to ensure that the mToon plays back at a smooth rate regardless of clock jitter.  Unfortunately, it
+	// does this with mToons that are synchronized to sounds, which is bad!  Presumably the reason this wasn't a problem
+	// is because MacOS runs with a 60Hz tick clock so it always divides evenly into the frame rate, and Windows... not sure.
+	//
+	// Anyway, there are two possible solutions to this: Lock the clock to 60Hz, or ignore the flag.
+	// Given that the flag should not be set, we ignore the flag.
+	hacks.ignoreMToonMaintainRateFlag = true;
+
+	// MTI initializes variables in a way that doesn't seem to match mTropolis behavior in any explicable way:
+	//
+	// For example, 0010cb0e "Scene Started => init Benbow" looks like this internally, decompiled:
+	// set local:a.billystate to 0
+	//
+	// In this case "a" is a compound variable and "billyState" is a NON-ALIASED integer variable contained in
+	// the compound.  Later, 0009fc9a "Scene Started => play intro" checks local 00007f83 00 'billyState'
+	// to determine if the Benbow intro needs to be played.  Since the GUID doesn't match (?) we check by name,
+	// which resolves to the GUID-less (?) alias in the Benbow subsection, which references 00097cf4, a different
+	// variable also named "billyState"
+	//
+	// Haven't figured out anything that would explain why it would reference the variables in the compound
+	// modifier.  Probably some quirk of early-version mTropolis.
+	hacks.mtiVariableReferencesHack = true;
+
+	// MTI returns from the menu by transitioning to a "return" scene that sends a return message to the target
+	// scene, which is supposed to activate a scene transtion modifier in the scene that transitions to itself.
+	// This doesn't work because the modifier is gone when the scene is unloaded.
+	hacks.mtiSceneReturnHack = true;
 }
 
 } // End of namespace HackSuites

@@ -95,6 +95,7 @@ bool isModifier(DataObjectType type) {
 	case kChangeSceneModifier:
 	case kReturnModifier:
 	case kSoundEffectModifier:
+	case kSimpleMotionModifier:
 	case kDragMotionModifier:
 	case kPathMotionModifierV1:
 	case kPathMotionModifierV2:
@@ -1385,7 +1386,7 @@ bool PathMotionModifier::PointDef::load(DataReader &reader, bool haveMessageSpec
 	if (!point.load(reader) || !reader.readU32(frame) || !reader.readU32(frameFlags))
 		return false;
 
-	if (haveMessageSpec && messageSpec.load(reader))
+	if (haveMessageSpec && !messageSpec.load(reader))
 		return false;
 
 	return true;
@@ -1423,6 +1424,24 @@ DataReadErrorCode PathMotionModifier::load(DataReader &reader) {
 		if (!points[i].load(reader, havePointDefMessageSpecs))
 			return kDataReadErrorReadFailed;
 	}
+
+	return kDataReadErrorNone;
+}
+
+SimpleMotionModifier::SimpleMotionModifier()
+	: motionType(0), directionFlags(0), steps(0), delayMSecTimes4800(0), unknown1{0, 0, 0, 0} {
+}
+
+DataReadErrorCode SimpleMotionModifier::load(DataReader &reader) {
+	if (_revision != 1001)
+		return kDataReadErrorUnsupportedRevision;
+
+	if (!modHeader.load(reader))
+		return kDataReadErrorReadFailed;
+
+	if (!executeWhen.load(reader) || !terminateWhen.load(reader) || !reader.readU16(motionType) || !reader.readU16(directionFlags)
+		|| !reader.readU16(steps) || !reader.readU32(delayMSecTimes4800) || !reader.readBytes(unknown1))
+		return kDataReadErrorReadFailed;
 
 	return kDataReadErrorNone;
 }
@@ -1532,8 +1551,8 @@ DataReadErrorCode SharedSceneModifier::load(DataReader &reader) {
 	if (_revision != 1000)
 		return kDataReadErrorUnsupportedRevision;
 
-	if (!modHeader.load(reader) || !executeWhen.load(reader)
-		|| !reader.readBytes(unknown1) || !reader.readU32(sectionGUID)
+	if (!modHeader.load(reader) || !reader.readBytes(unknown1)
+		|| !executeWhen.load(reader) || !reader.readU32(sectionGUID)
 		|| !reader.readU32(subsectionGUID) || !reader.readU32(sceneGUID))
 		return kDataReadErrorReadFailed;
 
@@ -1727,6 +1746,45 @@ DataReadErrorCode ImageEffectModifier::load(DataReader &reader) {
 		return kDataReadErrorReadFailed;
 
 	return kDataReadErrorNone;
+}
+
+ReturnModifier::ReturnModifier() : unknown1(0) {
+}
+
+DataReadErrorCode ReturnModifier::load(DataReader &reader) {
+	if (_revision != 1001)
+		return kDataReadErrorUnsupportedRevision;
+
+	if (!modHeader.load(reader) || !executeWhen.load(reader) || !reader.readU16(unknown1))
+		return kDataReadErrorReadFailed;
+
+	return kDataReadErrorNone;
+}
+
+CursorModifierV1::CursorModifierV1() : hasMacOnlyPart(false) {
+}
+
+DataReadErrorCode CursorModifierV1::load(DataReader &reader) {
+	if (_revision != 1001)
+		return kDataReadErrorUnsupportedRevision;
+
+	int64 startPos = reader.tell();
+
+	if (!modHeader.load(reader))
+		return kDataReadErrorReadFailed;
+
+	int64 distFromStart = reader.tell() - startPos + 6;
+	if (reader.getProjectFormat() == kProjectFormatMacintosh || modHeader.sizeIncludingTag > distFromStart) {
+		hasMacOnlyPart = true;
+
+		if (!macOnlyPart.applyWhen.load(reader) || !reader.readU32(macOnlyPart.unknown1) || !reader.readU16(macOnlyPart.unknown2) || !reader.readU32(macOnlyPart.cursorIndex))
+			return kDataReadErrorReadFailed;
+	}
+
+	return kDataReadErrorNone;
+}
+
+CursorModifierV1::MacOnlyPart::MacOnlyPart() : unknown1(0), unknown2(0), cursorIndex(0) {
 }
 
 CompoundVariableModifier::CompoundVariableModifier()
@@ -2319,8 +2377,6 @@ DataReadErrorCode loadDataObject(const PlugInModifierRegistry &registry, DataRea
 		return kDataReadErrorReadFailed;
 	}
 
-	debug(4, "Loading data object type 0x%x", static_cast<int>(type));
-
 	DataObject *dataObject = nullptr;
 	switch (type) {
 	case DataObjectTypes::kProjectLabelMap:
@@ -2406,6 +2462,9 @@ DataReadErrorCode loadDataObject(const PlugInModifierRegistry &registry, DataRea
 	case DataObjectTypes::kSoundEffectModifier:
 		dataObject = new SoundEffectModifier();
 		break;
+	case DataObjectTypes::kSimpleMotionModifier:
+		dataObject = new SimpleMotionModifier();
+		break;
 	case DataObjectTypes::kDragMotionModifier:
 		dataObject = new DragMotionModifier();
 		break;
@@ -2483,6 +2542,12 @@ DataReadErrorCode loadDataObject(const PlugInModifierRegistry &registry, DataRea
 		break;
 	case DataObjectTypes::kImageEffectModifier:
 		dataObject = new ImageEffectModifier();
+		break;
+	case DataObjectTypes::kReturnModifier:
+		dataObject = new ReturnModifier();
+		break;
+	case DataObjectTypes::kCursorModifierV1:
+		dataObject = new CursorModifierV1();
 		break;
 
 	case DataObjectTypes::kColorTableAsset:

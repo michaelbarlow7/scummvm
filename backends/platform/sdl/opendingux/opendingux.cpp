@@ -25,6 +25,7 @@
 #include "common/config-manager.h"
 #include "common/translation.h"
 
+#include "backends/graphics/opendingux/opendingux-graphics.h"
 #include "backends/platform/sdl/opendingux/opendingux.h"
 
 #include "backends/fs/posix/posix-fs-factory.h"
@@ -73,7 +74,7 @@ static const Common::AxisTableEntry odJoystickAxes[] = {
 Common::KeymapperDefaultBindings *OSystem_SDL_Opendingux::getKeymapperDefaultBindings() {
 	Common::KeymapperDefaultBindings *keymapperDefaultBindings = new Common::KeymapperDefaultBindings();
 
-	if (!Posix::assureDirectoryExists(JOYSTICK_DIR)) { 
+	if (!Posix::assureDirectoryExists(JOYSTICK_DIR)) {
 		keymapperDefaultBindings->setDefaultBinding(Common::kGlobalKeymapName, "VMOUSEUP", "JOY_UP");
 		keymapperDefaultBindings->setDefaultBinding(Common::kGlobalKeymapName, "VMOUSEDOWN", "JOY_DOWN");
 		keymapperDefaultBindings->setDefaultBinding(Common::kGlobalKeymapName, "VMOUSELEFT", "JOY_LEFT");
@@ -103,7 +104,11 @@ void OSystem_SDL_Opendingux::init() {
 }
 
 void OSystem_SDL_Opendingux::initBackend() {
+#ifdef RS90
+	ConfMan.registerDefault("fullscreen", false);
+#else
 	ConfMan.registerDefault("fullscreen", true);
+#endif
 	ConfMan.registerDefault("aspect_ratio", true);
 	ConfMan.registerDefault("themepath", "./themes");
 	ConfMan.registerDefault("extrapath", "./engine-data");
@@ -134,6 +139,9 @@ void OSystem_SDL_Opendingux::initBackend() {
 	if (!ConfMan.hasKey("opl_driver")) {
 		ConfMan.set("opl_driver", "db");
 	}
+	if (!ConfMan.hasKey("kbdmouse_speed")) {
+		ConfMan.setInt("kbdmouse_speed", 2);
+	}
 #ifdef LEPUS
 	if (!ConfMan.hasKey("output_rate")) {
 		ConfMan.set("output_rate", "22050");
@@ -148,6 +156,11 @@ void OSystem_SDL_Opendingux::initBackend() {
 		_savefileManager = new DefaultSaveFileManager(SAVE_PATH);
 	}
 
+	if (!_eventSource)
+		_eventSource = new SdlEventSource();
+	if (!_graphicsManager)
+		_graphicsManager = new OpenDinguxGraphicsManager(_eventSource, _window);
+
 	OSystem_SDL::initBackend();
 }
 
@@ -161,12 +174,15 @@ Common::String OSystem_SDL_Opendingux::getDefaultLogFileName() {
 }
 
 bool OSystem_SDL_Opendingux::hasFeature(Feature f) {
-	if (f == kFeatureFullscreenMode)
+	switch (f) {
+	case kFeatureFullscreenMode:
+	case kFeatureAspectRatioCorrection:
 		return false;
-	if (f == kFeatureAspectRatioCorrection)
-		return false;
-
-	return OSystem_SDL::hasFeature(f);
+	case kFeatureKbdMouseSpeed:
+		return true;
+	default:
+		return OSystem_SDL::hasFeature(f);
+	}
 }
 
 void OSystem_SDL_Opendingux::setFeatureState(Feature f, bool enable) {

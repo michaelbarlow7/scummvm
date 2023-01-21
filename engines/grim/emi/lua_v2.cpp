@@ -20,7 +20,6 @@
  */
 
 #include "common/endian.h"
-#include "common/foreach.h"
 #include "common/savefile.h"
 
 #include "graphics/surface.h"
@@ -221,7 +220,7 @@ void Lua_V2::GetFontDimensions() {
 	const char *fontName = lua_getstring(fontObj);
 
 	Font *font = nullptr;
-	foreach (Font *f, Font::getPool()) {
+	for (Font *f : Font::getPool()) {
 		if (f->getFilename() == fontName) {
 			font = f;
 		}
@@ -553,7 +552,7 @@ void Lua_V2::LocalizeString() {
 	if (lua_isstring(strObj)) {
 		const char *str = lua_getstring(strObj);
 		Common::String msg = parseMsgText(str, msgId);
-		sprintf(buf, "/%s/%s", msgId, msg.c_str());
+		Common::sprintf_s(buf, "/%s/%s", msgId, msg.c_str());
 
 		lua_pushstring(buf);
 	}

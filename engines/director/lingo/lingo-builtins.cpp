@@ -82,6 +82,7 @@ static BuiltinProto builtins[] = {
 	{ "append",			LB::b_append,		2, 2, 400, HBLTIN },	//			D4 h
 	{ "count",			LB::b_count,		1, 1, 400, FBLTIN },	//			D4 f
 	{ "deleteAt",		LB::b_deleteAt,		2, 2, 400, HBLTIN },	//			D4 h
+	{ "deleteOne",		LB::b_deleteOne,	2, 2, 400, HBLTIN },	//			D4 h, undocumented?
 	{ "deleteProp",		LB::b_deleteProp,	2, 2, 400, HBLTIN },	//			D4 h
 	{ "findPos",		LB::b_findPos,		2, 2, 400, FBLTIN },	//			D4 f
 	{ "findPosNear",	LB::b_findPosNear,	2, 2, 400, FBLTIN },	//			D4 f
@@ -547,6 +548,11 @@ void LB::b_value(int nargs) {
 	Common::String code = "return " + expr;
 	// Compile the code to an anonymous function and call it
 	ScriptContext *sc = g_lingo->_compiler->compileAnonymous(code);
+	if (!sc) {
+		warning("b_value(): Failed to parse expression \"%s\", returning 0", expr.c_str());
+		g_lingo->push(Datum(0));
+		return;
+	}
 	Symbol sym = sc->_eventHandlers[kEventGeneric];
 	LC::call(sym, 0, true);
 }
@@ -585,7 +591,6 @@ void LB::b_addProp(int nargs) {
 	TYPECHECK(list, PARRAY);
 
 	PCell cell = PCell(prop, value);
-	list.u.parr->arr.push_back(cell);
 
 	if (list.u.parr->_sorted) {
 		if (list.u.parr->arr.empty())
@@ -666,6 +671,37 @@ void LB::b_deleteAt(int nargs) {
 		break;
 	}
 }
+
+void LB::b_deleteOne(int nargs) {
+	Datum val = g_lingo->pop();
+	Datum list = g_lingo->pop();
+	TYPECHECK3(val, INT, FLOAT, SYMBOL);
+	TYPECHECK2(list, ARRAY, PARRAY);
+
+	switch (list.type) {
+	case ARRAY: {
+		g_lingo->push(list);
+		g_lingo->push(val);
+		b_getPos(nargs);
+		int index = g_lingo->pop().asInt();
+		if (index > 0) {
+			list.u.farr->arr.remove_at(index - 1);
+		}
+		break;
+	}
+	case PARRAY: {
+		Datum d;
+		int index = LC::compareArrays(LC::eqData, list, val, true, true).u.i;
+		if (index > 0) {
+			list.u.parr->arr.remove_at(index - 1);
+		}
+		break;
+	}
+	default:
+		TYPECHECK2(list, ARRAY, PARRAY);
+	}
+}
+
 
 void LB::b_deleteProp(int nargs) {
 	Datum prop = g_lingo->pop();
@@ -1101,7 +1137,7 @@ void LB::b_closeXlib(int nargs) {
 	}
 
 	Datum d = g_lingo->pop();
-	Common::String xlibName = d.asString();
+	Common::String xlibName = getFileName(d.asString());
 	g_lingo->closeXLib(xlibName);
 }
 
@@ -1195,6 +1231,7 @@ void LB::b_openXlib(int nargs) {
 				g_director->_allOpenResFiles.setVal(resPath, resFile);
 				uint32 XCOD = MKTAG('X', 'C', 'O', 'D');
 				uint32 XCMD = MKTAG('X', 'C', 'M', 'D');
+				uint32 XFCN = MKTAG('X', 'F', 'C', 'N');
 
 				Common::Array<uint16> rsrcList = resFile->getResourceIDList(XCOD);
 
@@ -1208,6 +1245,12 @@ void LB::b_openXlib(int nargs) {
 					xlibName = resFile->getResourceDetail(XCMD, rsrcList[i]).name.c_str();
 					g_lingo->openXLib(xlibName, kXObj);
 				}
+
+				rsrcList = resFile->getResourceIDList(XFCN);
+				for (uint i = 0; i < rsrcList.size(); i++) {
+					xlibName = resFile->getResourceDetail(XFCN, rsrcList[i]).name.c_str();
+					g_lingo->openXLib(xlibName, kXObj);
+				}
 				return;
 			} else {
 				delete resFile;
@@ -1215,7 +1258,7 @@ void LB::b_openXlib(int nargs) {
 		}
 	}
 
-	xlibName = d.asString();
+	xlibName = getFileName(d.asString());
 	g_lingo->openXLib(xlibName, kXObj);
 }
 
@@ -1280,8 +1323,8 @@ void LB::b_nothing(int nargs) {
 
 void LB::b_delay(int nargs) {
 	Datum d = g_lingo->pop();
-
 	g_director->getCurrentMovie()->getScore()->_nextFrameTime = g_system->getMillis() + (float)d.asInt() / 60 * 1000;
+	debugC(5, kDebugLoading, "b_delay(): delaying %d ticks, next frame time at %d", d.asInt(), g_director->getCurrentMovie()->getScore()->_nextFrameTime);
 }
 
 void LB::b_do(int nargs) {
@@ -1328,10 +1371,16 @@ void LB::b_go(int nargs) {
 			Datum movie;
 			Datum frame;
 
-			if (nargs > 0) {
+			if (nargs > 0 && firstArg.type == STRING) {
 				movie = firstArg;
 				TYPECHECK(movie, STRING);
 
+				frame = g_lingo->pop();
+				nargs -= 1;
+			// Even if there's more than one argument, if the first
+			// arg is an int, Director discards the remainder and
+			// treats it as the frame.
+			} else if (nargs > 0 && firstArg.type == INT) {
 				frame = g_lingo->pop();
 				nargs -= 1;
 			} else {
@@ -1421,8 +1470,8 @@ void LB::b_preLoad(int nargs) {
 
 	g_lingo->_theResult = g_lingo->pop();
 
-	if (nargs == 2)
-		g_lingo->pop();
+	if (nargs > 1)
+		g_lingo->dropStack(nargs - 1);
 }
 
 void LB::b_preLoadCast(int nargs) {
@@ -1581,7 +1630,7 @@ void LB::b_quit(int nargs) {
 }
 
 void LB::b_return(int nargs) {
-	CFrame *fp = g_director->getCurrentWindow()->_callstack.back();
+	CFrame *fp = g_lingo->_state->callstack.back();
 
 	Datum retVal;
 	if (nargs > 0) {
@@ -1594,7 +1643,7 @@ void LB::b_return(int nargs) {
 		g_lingo->pop();
 
 	// Do not allow a factory's mNew method to return a value
-	if (nargs > 0 && !(g_lingo->_currentMe.type == OBJECT && g_lingo->_currentMe.u.obj->getObjType() == kFactoryObj
+	if (nargs > 0 && !(g_lingo->_state->me.type == OBJECT && g_lingo->_state->me.u.obj->getObjType() == kFactoryObj
 			&& fp->sp.name->equalsIgnoreCase("mNew"))) {
 		g_lingo->push(retVal);
 	}
@@ -1704,7 +1753,7 @@ void LB::b_alert(int nargs) {
 
 	if (!debugChannelSet(-1, kDebugFewFramesOnly)) {
 		g_director->_wm->clearHandlingWidgets();
-		GUI::MessageDialog dialog(alert.c_str(), _("OK"));
+		GUI::MessageDialog dialog(g_director->getCurrentMovie()->getCast()->decodeString(alert), _("OK"));
 		dialog.runModal();
 	}
 }
@@ -1755,8 +1804,8 @@ void LB::b_showGlobals(int nargs) {
 
 void LB::b_showLocals(int nargs) {
 	Common::String local_out = "-- Local Variables --\n";
-	if (g_lingo->_localvars) {
-		for (auto it = g_lingo->_localvars->begin(); it != g_lingo->_localvars->end(); it++) {
+	if (g_lingo->_state->localVars) {
+		for (auto it = g_lingo->_state->localVars->begin(); it != g_lingo->_state->localVars->end(); it++) {
 			local_out += it->_key + " = " + it->_value.asString() + "\n";
 		}
 	}
@@ -1956,7 +2005,7 @@ void LB::b_installMenu(int nargs) {
 	// installMenu castNum
 	Datum d = g_lingo->pop();
 
-	CastMemberID memberID = d.asMemberID();
+	CastMemberID memberID = d.asMemberID(kCastText);
 	if (memberID.member == 0) {
 		g_director->_wm->removeMenu();
 		return;
@@ -1973,7 +2022,7 @@ void LB::b_installMenu(int nargs) {
 	}
 	TextCastMember *field = static_cast<TextCastMember *>(member);
 
-	Common::U32String menuStxt = g_lingo->_compiler->codePreprocessor(field->getText(), field->getCast()->_lingoArchive, kNoneScript, memberID, true);
+	Common::String menuStxt = field->getRawText();
 	int linenum = -1; // We increment it before processing
 
 	Graphics::MacMenu *menu = g_director->_wm->addMenu();
@@ -1984,50 +2033,49 @@ void LB::b_installMenu(int nargs) {
 
 	menu->setCommandsCallback(menuCommandsCallback, g_director);
 
-	debugC(3, kDebugLingoExec, "installMenu: '%s'", Common::toPrintable(menuStxt).encode().c_str());
+	debugC(3, kDebugLingoExec, "installMenu: '%s'", Common::toPrintable(menuStxt).c_str());
 
 	LingoArchive *mainArchive = movie->getMainLingoArch();
 
-	// Since loading the STXT converts the text to Unicode based on the platform
-	// encoding, we need to fetch the correct Unicode character for the platform.
-
 	// STXT sections use Mac-style carriage returns for line breaks.
-	// The code preprocessor converts carriage returns to line feeds.
-	const uint32 LINE_BREAK = 0x0a;
-	// Menu definitions use the character 0xc3 to denote a checkmark.
-	// For Mac, this is √. For Windows, this is Ã.
-	const uint8 CHECKMARK_CHAR = 0xc3;
-	const uint32 CHECKMARK_U32 = numToChar(CHECKMARK_CHAR);
-	const char *CHECKMARK_STR = "\xc3\x83"; // "Ã"
+	const char LINE_BREAK_CHAR = '\x0D';
 	// Menu definitions use the character 0xc5 to denote a code separator.
 	// For Mac, this is ≈. For Windows, this is Å.
-	const uint8 CODE_SEPARATOR_CHAR = 0xc5;
-	const uint32 CODE_SEPARATOR_U32 = numToChar(CODE_SEPARATOR_CHAR);
-	const char *CODE_SEPARATOR_STR = "\xc3\x85"; // "Å"
+	const char CODE_SEPARATOR_CHAR = '\xC5';
+	// Continuation character is 0xac to denote a line running over.
+	// For Mac, this is ¨. For Windows, this is ¬.
+	const char CONTINUATION_CHAR = '\xAC';
+	// Menu definitions use the character 0xc3 to denote a checkmark.
+	// For Mac, this is √. For Windows, this is Ã.
+	// This is used by MacMenu::createSubMenuFromString.
 
-	Common::U32String lineBuffer;
+	Common::String line;
 
-	for (const Common::u32char_type_t *s = menuStxt.c_str(); *s; s++) {
-		lineBuffer.clear();
-		while (*s && *s != LINE_BREAK) {
-			if (*s == CHECKMARK_U32) {
-				lineBuffer += CHECKMARK_CHAR;
-				s++;
-			} else if (*s == CODE_SEPARATOR_U32) {
-				lineBuffer += CODE_SEPARATOR_CHAR;
-				s++;
-			} else if (*s == CONTINUATION) { // fast forward to the next line
-				s++;
-				if (*s == LINE_BREAK) {
-					lineBuffer += ' ';
-					s++;
+	for (auto it = menuStxt.begin(); it != menuStxt.end(); ++it) {
+		line.clear();
+		while (it != menuStxt.end() && *it != LINE_BREAK_CHAR) {
+			if (*it == '-') {
+				it++;
+				if (it != menuStxt.end() && *it == '-') { // rest of the line is a comment
+					while (it != menuStxt.end() && *it != LINE_BREAK_CHAR) {
+						it++;
+					}
+					break;
 				}
+				line += '-';
+			} else if (*it == CONTINUATION_CHAR) { // fast forward to the next line
+				it++;
+				if (*it == LINE_BREAK_CHAR) {
+					line += ' ';
+					it++;
+				}
+			} else if (*it == LINE_BREAK_CHAR) {
+				break;
 			} else {
-				lineBuffer += *s++;
+				line += *it++;
 			}
 		}
 		linenum++;
-		Common::String line = lineBuffer.encode();
 
 		if (line.empty())
 			continue;
@@ -2052,22 +2100,14 @@ void LB::b_installMenu(int nargs) {
 			continue;
 		}
 
-		// If the line has a UTF8 checkmark, replace it with a byte character
-		// as expected by MacMenu.
-		size_t checkOffset = line.find(CHECKMARK_STR);
-		if (checkOffset != Common::String::npos) {
-			line.erase(checkOffset, strlen(CHECKMARK_STR));
-			line.insertChar(CHECKMARK_CHAR, checkOffset);
-		}
-
 		// Split the line at the code separator
-		size_t sepOffset = line.find(CODE_SEPARATOR_STR);
+		size_t sepOffset = line.find(CODE_SEPARATOR_CHAR);
 
 		Common::String text;
 
 		if (sepOffset != Common::String::npos) {
 			text = Common::String(line.c_str(), line.c_str() + sepOffset);
-			command = Common::String(line.c_str() + sepOffset + strlen(CODE_SEPARATOR_STR));
+			command = Common::String(line.c_str() + sepOffset + 1);
 		} else {
 			text = line;
 			command = "";
@@ -2090,7 +2130,7 @@ void LB::b_installMenu(int nargs) {
 			}
 		}
 
-		if (!*s) // if we reached end of string, do not increment it but break
+		if (it == menuStxt.end()) // if we reached end of string, do not increment it but break
 			break;
 	}
 
@@ -2245,6 +2285,35 @@ void LB::b_pasteClipBoardInto(int nargs) {
 	}
 }
 
+static const struct PaletteNames {
+	const char *name;
+	PaletteType type;
+} paletteNames[] = {
+	{ "System", kClutSystemMac },
+	{ "System - Mac", kClutSystemMac },
+	{ "Rainbow", kClutRainbow },
+	{ "Grayscale", kClutGrayscale },
+	{ "Pastels", kClutPastels },
+	{ "Vivid", kClutVivid },
+	{ "NTSC", kClutNTSC },
+	{ "Metallic", kClutMetallic },
+	//{ "Web 216", },
+	//{ "VGA", },
+	//{ "System - Win", },
+	{ "SYSTEM - WIN (DIR 4)", kClutSystemWin },
+
+	// Japanese palette names.
+	// TODO: Check encoding. Original is SJIS
+	{ "\x83V\x83X\x83""e\x83\x80 - Mac", kClutSystemMac },				// システム - Mac
+	{ "\x83\x8C>\x83""C\x83\x93\x83{\x81[", kClutRainbow },				// レインボー
+	{ "\x83O\x83>\x8C\x81[\x83X\x83P\x81[\x83\x8B", kClutGrayscale },	// グレースケール
+	{ "\x83p\x83>X\x83""e\x83\x8B", kClutPastels },						// パステル
+	{ "\x83r\x83>r\x83""b\x83h", kClutVivid },							// ビビッド
+	{ "\x83\x81\x83^\x83\x8A\x83""b\x83N", kClutMetallic },				// メタリック
+	// { "\x83V\x83X\x83""e\x83\x80 - Win", },							// システム - Win
+	{ "\x83V\x83X\x83""e\x83\x80 - Win (Dir 4)", kClutSystemWin },		// システム - Win (Dir 4)
+};
+
 void LB::b_puppetPalette(int nargs) {
 	g_lingo->convertVOIDtoString(0, nargs);
 	int numFrames = 0, speed = 0, palette = 0;
@@ -2264,18 +2333,10 @@ void LB::b_puppetPalette(int nargs) {
 		if (d.type == STRING) {
 			// TODO: It seems that there are not strings for Mac and Win system palette
 			Common::String palStr = d.asString();
-			if (palStr.equalsIgnoreCase("Rainbow")) {
-				palette = kClutRainbow;
-			} else if (palStr.equalsIgnoreCase("Grayscale")) {
-				palette = kClutGrayscale;
-			} else if (palStr.equalsIgnoreCase("Pastels")) {
-				palette = kClutPastels;
-			} else if (palStr.equalsIgnoreCase("Vivid")) {
-				palette = kClutVivid;
-			} else if (palStr.equalsIgnoreCase("NTSC")) {
-				palette = kClutNTSC;
-			} else if (palStr.equalsIgnoreCase("Metallic")) {
-				palette = kClutMetallic;
+
+			for (int i = 0; i < ARRAYSIZE(paletteNames); i++) {
+				if (palStr.equalsIgnoreCase(paletteNames[i].name))
+					palette = paletteNames[i].type;
 			}
 		}
 		if (!palette) {
@@ -2332,7 +2393,7 @@ void LB::b_puppetSound(int nargs) {
 	// So we'll just queue it to be played later.
 
 	if (nargs == 1) {
-		CastMemberID castMember = g_lingo->pop().asMemberID();
+		CastMemberID castMember = g_lingo->pop().asMemberID(kCastSound);
 
 		// in D2 manual p206, puppetSound 0 will turn off the puppet status of sound
 		sound->setPuppetSound(castMember, 1);
@@ -2991,6 +3052,9 @@ void LB::b_cast(int nargs) {
 
 void LB::b_script(int nargs) {
 	Datum d = g_lingo->pop();
+	// FIXME: Check with later versions of director
+	//        The kCastText check version breaks Phibos and Yokai Ningen Bem.
+	// CastMemberID memberID = d.asMemberID(kCastText);
 	CastMemberID memberID = d.asMemberID();
 	CastMember *cast = g_director->getCurrentMovie()->getCastMember(memberID);
 

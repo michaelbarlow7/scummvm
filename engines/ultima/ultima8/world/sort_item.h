@@ -23,7 +23,6 @@
 #define ULTIMA8_WORLD_SORTITEM_H
 
 #include "ultima/ultima8/misc/common_types.h"
-#include "ultima/ultima8/misc/debugger.h"
 
 namespace Ultima {
 namespace Ultima8 {
@@ -218,6 +217,9 @@ struct SortItem {
 
 	// Functions
 
+	// Calculate screenspace box bounds at center point from worldspace bounds
+	inline void calculateBoxBounds(int32 sx, int32 sy);
+
 	// Screenspace check to see if this overlaps si2
 	inline bool overlap(const SortItem &si2) const;
 
@@ -232,7 +234,25 @@ struct SortItem {
 		return _z < other->_z || (_z == other->_z && _flat && !other->_flat);
 	}
 
+	Common::String dumpInfo() const;
 };
+
+inline void SortItem::calculateBoxBounds(int32 sx, int32 sy) {
+	// Screenspace bounding box left extent    (LNT x coord)
+	_sxLeft = (_xLeft - _y) / 4 - sx;
+	// Screenspace bounding box right extent   (RFT x coord)
+	_sxRight = (_x - _yFar) / 4 - sx;
+
+	// Screenspace bounding box top x coord    (LFT x coord)
+	_sxTop = (_xLeft - _yFar) / 4 - sx;
+	// Screenspace bounding box top extent     (LFT y coord)
+	_syTop = (_xLeft + _yFar) / 8 - _zTop - sy;
+
+	// Screenspace bounding box bottom x coord (RNB x coord)
+	_sxBot = (_x - _y) / 4 - sx;
+	// Screenspace bounding box bottom extent  (RNB y coord)
+	_syBot = (_x + _y) / 8 - _z - sy;
+}
 
 inline bool SortItem::overlap(const SortItem &si2) const {
 	const int point_top_diff[2] = { _sxTop - si2._sxBot, _syTop - si2._syBot };
@@ -352,7 +372,7 @@ inline bool SortItem::below(const SortItem &si2) const {
 	}
 	// Mixed, or non flat
 	else {
-		// Inv items always drawn first if their z-bottom is equal or higher. 
+		// Inv items always drawn first if their z-bottom is equal or higher.
 		// This is a bit of a hack as 2 places in Crusader there are keycards
 		// on tables but their z position is the bottom z of the table.
 		if (si1._invitem) {
@@ -376,6 +396,18 @@ inline bool SortItem::below(const SortItem &si2) const {
 	// same z-position may have different heights (think of a mouse sorting vs the Avatar).
 	if (si1._z != si2._z)
 		return si1._z < si2._z;
+
+	// Land always gets drawn first
+	if (si1._land != si2._land)
+		return si1._land > si2._land;
+
+	// Land always gets drawn before roof
+	if (si1._land && si2._land && si1._roof != si2._roof)
+		return si1._roof < si2._roof;
+
+	// Roof always gets drawn first
+	if (si1._roof != si2._roof)
+		return si1._roof > si2._roof;
 
 	// Partial in X + Y front
 	if (si1._x + si1._y != si2._x + si2._y)
@@ -401,34 +433,33 @@ inline bool SortItem::below(const SortItem &si2) const {
 	return si1._frame < si2._frame;
 }
 
-ConsoleStream &operator<<(ConsoleStream &cs, const SortItem &si) {
-	cs << si._shapeNum << ":" << si._frame <<
-		" (" << si._xLeft << "," << si._yFar << "," << si._z << ")" <<
-		" (" << si._x << "," << si._y << "," << si._zTop << "): ";
-	if (si._sprite)
-		cs << "sprite ";
-	if (si._flat)
-		cs << "flat ";
-	if (si._anim)
-		cs << "anim ";
-	if (si._trans)
-		cs << "trans ";
-	if (si._draw)
-		cs << "draw ";
-	if (si._solid)
-		cs << "solid ";
-	if (si._occl)
-		cs << "occl ";
-	if (si._fbigsq)
-		cs << "fbigsq ";
-	if (si._roof)
-		cs << "roof ";
-	if (si._land)
-		cs << "land ";
-	if (si._noisy)
-		cs << "noisy ";
+Common::String SortItem::dumpInfo() const {
+	Common::String info = Common::String::format("%u:%u (%d, %d, %d) (%d, %d, %d): ",
+								_shapeNum, _frame, _xLeft, _yFar, _z, _x, _y, _zTop);
+	if (_sprite)
+		info += "sprite ";
+	if (_flat)
+		info += "flat ";
+	if (_anim)
+		info += "anim ";
+	if (_trans)
+		info += "trans ";
+	if (_draw)
+		info += "draw ";
+	if (_solid)
+		info += "solid ";
+	if (_occl)
+		info += "occl ";
+	if (_fbigsq)
+		info += "fbigsq ";
+	if (_roof)
+		info += "roof ";
+	if (_land)
+		info += "land ";
+	if (_noisy)
+		info += "noisy ";
 
-	return cs;
+	return info;
 }
 
 } // End of namespace Ultima8

@@ -458,6 +458,17 @@ DreamWeb
    * - Willem Jan Palenstijn
      -
 
+Freescape
+^^^^^^^^^
+
+.. list-table::
+   :widths: 35 65
+
+   * - Chris Allen
+     - Sound engine programming
+   * - Gustavo Grieco
+     -
+
 Glk
 ^^^
 
@@ -499,6 +510,8 @@ Gob
    * - Torbjörn Andersson
      -
    * - Arnaud Boutonné
+     -
+   * - Simon Delamarre
      -
    * - Sven Hesse
      -
@@ -583,6 +596,15 @@ Hopkins
    * - Arnaud Boutonné
      -
    * - Paul Gilbert
+     -
+
+Hpl1
+^^^^
+
+.. list-table::
+   :widths: 35 65
+
+   * - Emanuele Grisenti
      -
 
 Hugo
@@ -982,7 +1004,7 @@ SCUMM
    * - Torbjörn Andersson
      -
    * - Andrea Boscarino
-     - Digital iMUSE, various fixes
+     - Digital iMUSE, SMUSH audio, GUI
    * - James Brown
      - (retired)
    * - Jonathan Gray
@@ -1143,6 +1165,15 @@ TeenAgent
    * - Robert Megone
      - Help with callback rewriting
    * - Vladimir Menshakov
+     -
+
+Tetraedge
+^^^^^^^^^
+
+.. list-table::
+   :widths: 35 65
+
+   * - Matthew Duggan
      -
 
 Tinsel
@@ -1692,6 +1723,8 @@ Miscellaneous
      - ARM assembly routines for nice speedups on several ports; improvements to the sound mixer
    * - Trembyle
      - Archivist
+   * - Lothar Serra Mari
+     - Tackling Tremendously Tedious Tasks(tm); ScummVM's Seal of Approval (Awp?!)
 
 Website (code)
 **************

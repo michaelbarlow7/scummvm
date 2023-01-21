@@ -132,14 +132,16 @@ void GridItemWidget::drawWidget() {
 	// Draw Flag
 	const Graphics::ManagedSurface *flagGfx = _grid->languageToSurface(_activeEntry->language);
 	if (flagGfx) {
-		Common::Point p(_x + thumbWidth - flagGfx->w - 5, _y + 5);
+		// SVG and PNG can resize differently so it's better to use thumbWidth as reference to
+		// ensure all flags are aligned
+		Common::Point p(_x + thumbWidth - (thumbWidth / 5), _y + 5);
 		g_gui.theme()->drawSurface(p, *flagGfx, true);
 	}
 
 	// Draw Demo Overlay
 	const Graphics::ManagedSurface *demoGfx = _grid->demoToSurface(_activeEntry->extra);
 	if (demoGfx) {
-		Common::Point p(_x + ((thumbWidth - demoGfx->w)/2) , _y + (thumbHeight - demoGfx->h - 10));
+		Common::Point p(_x, _y);
 		g_gui.theme()->drawSurface(p, *demoGfx, true);
 	}
 
@@ -672,8 +674,19 @@ void GridWidget::loadFlagIcons() {
 		Graphics::ManagedSurface *gfx = loadSurfaceFromFile(path, _flagIconWidth, _flagIconHeight);
 		if (gfx) {
 			_languageIcons[l->id] = gfx;
+			continue;
+		} // if no .svg flag is available, search for a .png
+		path = Common::String::format("icons/flags/%s.png", l->code);
+		gfx = loadSurfaceFromFile(path);
+		if (gfx) {
+			const Graphics::ManagedSurface *scGfx = scaleGfx(gfx, _flagIconWidth, _flagIconHeight, true);
+			_languageIcons[l->id] = scGfx;
+			if (gfx != scGfx) {
+				gfx->free();
+				delete gfx;
+			}
 		} else {
-			_languageIcons[l->id] = nullptr;
+			_languageIcons[l->id] = nullptr; // nothing found, set to nullptr
 		}
 	}
 }
@@ -697,7 +710,12 @@ void GridWidget::loadPlatformIcons() {
 }
 
 void GridWidget::loadExtraIcons() {  // for now only the demo icon is available
-	Graphics::ManagedSurface *gfx = loadSurfaceFromFile("icons/extra/demo.png");
+	Graphics::ManagedSurface *gfx = loadSurfaceFromFile("icons/extra/demo.svg", _extraIconWidth, _extraIconHeight);
+	if (gfx) {
+		_extraIcons[0] = gfx;
+		return;
+	} // if no .svg file is available, search for a .png
+	gfx = loadSurfaceFromFile("icons/extra/demo.png");
 	if (gfx) {
 		const Graphics::ManagedSurface *scGfx = scaleGfx(gfx, _extraIconWidth, _extraIconHeight, true);
 		_extraIcons[0] = scGfx;
@@ -928,8 +946,8 @@ void GridWidget::reflowLayout() {
 	_flagIconWidth = _thumbnailWidth / 4;
 	_flagIconHeight = _flagIconWidth / 2;
 	_platformIconHeight = _platformIconWidth = _thumbnailWidth / 6;
-	_extraIconWidth = _thumbnailWidth / 2;
-	_extraIconHeight = _extraIconWidth / 4;
+	_extraIconWidth = _thumbnailWidth;
+	_extraIconHeight = _thumbnailHeight;
 
 	if ((oldThumbnailHeight != _thumbnailHeight) || (oldThumbnailWidth != _thumbnailWidth)) {
 		unloadSurfaces(_extraIcons);

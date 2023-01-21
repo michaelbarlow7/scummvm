@@ -259,7 +259,7 @@ void AudioProcess::playSFX(int sfxNum, int priority, ObjId objId, int loops,
 				// Exactly the same (and playing) so just return
 				//if (it->priority == priority)
 				if (mixer->isPlaying(it->_channel)) {
-					pout << "Sound " << sfxNum << " already playing on obj " << objId << Std::endl;
+					debug(MM_INFO, "Sound %d already playing on obj %u", sfxNum, objId);
 					return;
 				} else {
 					it = _sampleInfo.erase(it);
@@ -374,7 +374,7 @@ bool AudioProcess::playSpeech(const Std::string &barked, int shapeNum, ObjId obj
 		        it->_priority == shapeNum && it->_objId == objId) {
 
 			if (mixer->isPlaying(it->_channel)) {
-				pout << "Speech already playing" << Std::endl;
+				debug(MM_INFO, "Speech already playing");
 				return true;
 			} else {
 				it = _sampleInfo.erase(it);
@@ -511,8 +511,10 @@ uint32 AudioProcess::I_playSFX(const uint8 *args, unsigned int argsize) {
 	}
 
 	AudioProcess *ap = AudioProcess::get_instance();
-	if (ap) ap->playSFX(sfxNum, priority, objId, 0);
-	else perr << "Error: No AudioProcess" << Std::endl;
+	if (ap)
+		ap->playSFX(sfxNum, priority, objId, 0);
+	else
+		warning("No AudioProcess");
 
 	return 0;
 }
@@ -533,8 +535,10 @@ uint32 AudioProcess::I_playAmbientSFX(const uint8 *args, unsigned int argsize) {
 	}
 
 	AudioProcess *ap = AudioProcess::get_instance();
-	if (ap) ap->playSFX(sfxNum, priority, objId, -1, true);
-	else perr << "Error: No AudioProcess" << Std::endl;
+	if (ap)
+		ap->playSFX(sfxNum, priority, objId, -1, true);
+	else
+		warning("No AudioProcess");
 
 	return 0;
 }
@@ -580,8 +584,10 @@ uint32 AudioProcess::I_isSFXPlaying(const uint8 *args, unsigned int argsize) {
 	ARG_SINT16(sfxNum);
 
 	AudioProcess *ap = AudioProcess::get_instance();
-	if (ap) return ap->isSFXPlaying(sfxNum);
-	else perr << "Error: No AudioProcess" << Std::endl;
+	if (ap)
+		return ap->isSFXPlaying(sfxNum);
+	else
+		warning("No AudioProcess");
 	return 0;
 }
 
@@ -607,8 +613,10 @@ uint32 AudioProcess::I_setVolumeSFX(const uint8 *args, unsigned int /*argsize*/)
 	ARG_UINT8(volume);
 
 	AudioProcess *ap = AudioProcess::get_instance();
-	if (ap) ap->setVolumeSFX(sfxNum, volume);
-	else perr << "Error: No AudioProcess" << Std::endl;
+	if (ap)
+		ap->setVolumeSFX(sfxNum, volume);
+	else
+		warning("No AudioProcess");
 
 	return 0;
 }
@@ -642,8 +650,10 @@ uint32 AudioProcess::I_stopSFX(const uint8 *args, unsigned int argsize) {
 	}
 
 	AudioProcess *ap = AudioProcess::get_instance();
-	if (ap) ap->stopSFX(sfxNum, objId);
-	else perr << "Error: No AudioProcess" << Std::endl;
+	if (ap)
+		ap->stopSFX(sfxNum, objId);
+	else
+		warning("No AudioProcess");
 
 	return 0;
 }
@@ -653,7 +663,7 @@ uint32 AudioProcess::I_stopSFXCru(const uint8 *args, unsigned int argsize) {
 	ARG_ITEM_FROM_PTR(item);
 
 	if (!item) {
-		perr << "Invalid item in I_stopSFXCru";
+		warning("Invalid item in I_stopSFXCru");
 		return 0;
 	}
 
@@ -663,8 +673,10 @@ uint32 AudioProcess::I_stopSFXCru(const uint8 *args, unsigned int argsize) {
 	}
 
 	AudioProcess *ap = AudioProcess::get_instance();
-	if (ap) ap->stopSFX(sfxNum, item->getObjId());
-	else perr << "Error: No AudioProcess" << Std::endl;
+	if (ap)
+		ap->stopSFX(sfxNum, item->getObjId());
+	else
+		warning("No AudioProcess");
 
 	return 0;
 }
@@ -672,8 +684,10 @@ uint32 AudioProcess::I_stopSFXCru(const uint8 *args, unsigned int argsize) {
 uint32 AudioProcess::I_stopAllSFX(const uint8 * /*args*/, unsigned int /*argsize*/) {
 	AudioProcess *ap = AudioProcess::get_instance();
 	// Not *exactly* the same, but close enough for this intrinsic.
-	if (ap) ap->stopAllExceptSpeech();
-	else perr << "Error: No AudioProcess" << Std::endl;
+	if (ap)
+		ap->stopAllExceptSpeech();
+	else
+		warning("No AudioProcess");
 
 	return 0;
 }

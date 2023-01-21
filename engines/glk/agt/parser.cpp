@@ -112,17 +112,17 @@ static void print_nlist(parse_rec *n) {
 	for (c = 0; n->info != D_END && c < 20; n++, c++)
 		if (n->info == D_AND) writestr(" AND ");
 		else if (n->info == D_NUM) { /* Number entered */
-			sprintf(buff, "#%ld(%d); ", n->num, n->obj);
+			Common::sprintf_s(buff, "#%ld(%d); ", n->num, n->obj);
 			writestr(buff);
 		} else if (n->obj < 0) {
 			writestr(dict[-(n->obj)]);
-			sprintf(buff, "(%d); ", n->obj);
+			Common::sprintf_s(buff, "(%d); ", n->obj);
 			writestr(buff);
 		} else {
 			s = objname(n->obj);
 			writestr(s);
 			rfree(s);
-			sprintf(buff, "(%d) ['%s %s']; ", n->obj, dict[n->adj], dict[n->noun]);
+			Common::sprintf_s(buff, "(%d) ['%s %s']; ", n->obj, dict[n->adj], dict[n->noun]);
 			writestr(buff);
 		}
 	if (n->info != D_END) writestr("///");
@@ -922,7 +922,7 @@ static int disambig_phrase(parse_rec **ilist, parse_rec *truenoun, int tn_ofs,
 					s = (char *)objname(list[i].obj);
 				else {
 					s = (char *)rmalloc(30 * sizeof(char));
-					sprintf(s, "%ld", list[i].num);
+					Common::sprintf_s(s, 30, "%ld", list[i].num);
 				}
 				writestr(s);
 				rfree(s);
@@ -1054,7 +1054,7 @@ static parse_rec *parse_a_noun(void)
 	/* If ip==oip is 0 (meaning no matches so far) or ip==oip+1
 	   (meaning we have a one-word match) then we need to check for
 	   flag nouns, global nouns, ALL, DOOR, pronouns, etc.
-	   and add them to the list if neccessary */
+	   and add them to the list if necessary */
 
 	if (ip == oip || ip == oip + 1) {
 
@@ -1433,7 +1433,7 @@ rbool parse(void)
 	/* We got rid of too much */
 	rfree(currnoun);
 
-	/* Next, expand ALL if neccessary */
+	/* Next, expand ALL if necessary */
 	if (!PURE_ALL && lnoun[0].info == D_ALL) {
 		lnoun = expand_all(lnoun);
 		if (lnoun[0].info == D_END) { /* ALL expands to nothing */

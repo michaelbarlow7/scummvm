@@ -20,6 +20,7 @@
  */
 
 #include "twine/renderer/renderer.h"
+#include "common/util.h"
 #include "twine/menu/interface.h"
 #include "twine/renderer/redraw.h"
 #include "twine/renderer/shadeangletab.h"
@@ -40,195 +41,190 @@ Renderer::Renderer(TwinEEngine *engine) : _engine(engine) {
 }
 
 Renderer::~Renderer() {
-	free(_polyTab);
-	free(_colorProgressionBuffer);
+	free(_tabVerticG);
+	free(_tabVerticD);
+	free(_tabCoulG);
+	free(_tabCoulD);
+	free(_taby0);
+	free(_taby1);
 }
 
 void Renderer::init(int32 w, int32 h) {
-	_polyTabSize = _engine->height() * 6;
-	_polyTab = (int16 *)malloc(_polyTabSize * sizeof(int16));
-	_colorProgressionBuffer = (int16 *)malloc(_polyTabSize * sizeof(int16));
-	_holomap_polytab_1_1 = &_polyTab[_engine->height() * 0];
-	_holomap_polytab_2_1 = &_polyTab[_engine->height() * 1];
-	_holomap_polytab_1_2 = &_polyTab[_engine->height() * 2];
-	_holomap_polytab_2_2 = &_polyTab[_engine->height() * 3];
-	_holomap_polytab_1_3 = &_polyTab[_engine->height() * 4];
-	_holomap_polytab_2_3 = &_polyTab[_engine->height() * 5];
+	size_t size = _engine->height() * sizeof(int16);
+
+	_tabVerticG = (int16 *)malloc(size);
+	memset(_tabVerticG, 0, size);
+	_tabVerticD = (int16 *)malloc(size);
+	memset(_tabVerticD, 0, size);
+	_tabCoulG = (int16 *)malloc(size);
+	memset(_tabCoulG, 0, size);
+	_tabCoulD = (int16 *)malloc(size);
+	memset(_tabCoulD, 0, size);
+	_taby0 = (int16 *)malloc(size);
+	memset(_taby0, 0, size);
+	_taby1 = (int16 *)malloc(size);
+	memset(_taby1, 0, size);
+
+	_tabx0 = _tabCoulG;
+	_tabx1 = _tabCoulD;
 }
 
 IVec3 &Renderer::projectPositionOnScreen(int32 cX, int32 cY, int32 cZ) { // ProjettePoint
-	if (_isUsingOrthoProjection) {
-		_projPos.x = ((cX - cZ) * 24) / ISO_SCALE + _orthoProjPos.x;
-		_projPos.y = (((cX + cZ) * 12) - cY * 30) / ISO_SCALE + _orthoProjPos.y;
+	if (_isUsingIsoProjection) {
+		_projPos.x = ((cX - cZ) * 24) / ISO_SCALE + _projectionCenter.x;
+		_projPos.y = (((cX + cZ) * 12) - cY * 30) / ISO_SCALE + _projectionCenter.y;
 		_projPos.z = cZ - cY - cX;
 		return _projPos;
 	}
 
-	if (_baseRotPos.z - cZ < 0) {
+	if (_cameraRot.z - cZ < 0) {
 		_projPos.x = 0;
 		_projPos.y = 0;
 		_projPos.z = 0;
 		return _projPos;
 	}
 
-	cX -= _baseRotPos.x;
-	cY -= _baseRotPos.y;
-	cZ = _baseRotPos.z - cZ;
+	cX -= _cameraRot.x;
+	cY -= _cameraRot.y;
+	cZ = _cameraRot.z - cZ;
 
-	int32 posZ = cZ + _cameraDepthOffset;
+	int32 posZ = cZ + _kFactor;
 	if (posZ <= 0) {
 		posZ = 0x7FFF;
 	}
 
-	_projPos.x = (cX * _cameraScaleX) / posZ + _orthoProjPos.x;
-	_projPos.y = (-cY * _cameraScaleY) / posZ + _orthoProjPos.y;
+	_projPos.x = (cX * _lFactorX) / posZ + _projectionCenter.x;
+	_projPos.y = (-cY * _lFactorY) / posZ + _projectionCenter.y;
 	_projPos.z = posZ;
 	return _projPos;
 }
 
-void Renderer::setCameraPosition(int32 x, int32 y, int32 depthOffset, int32 scaleX, int32 scaleY) {
-	_orthoProjPos.x = x;
-	_orthoProjPos.y = y;
+void Renderer::setProjection(int32 x, int32 y, int32 kfact, int32 lfactx, int32 lfacty) {
+	_projectionCenter.x = x;
+	_projectionCenter.y = y;
 
-	_cameraDepthOffset = depthOffset;
-	_cameraScaleX = scaleX;
-	_cameraScaleY = scaleY;
+	_kFactor = kfact;
+	_lFactorX = lfactx;
+	_lFactorY = lfacty;
 
-	_isUsingOrthoProjection = false;
+	_isUsingIsoProjection = false;
 }
 
-void Renderer::setBaseTranslation(int32 x, int32 y, int32 z) {
-	_baseTransPos.x = x;
-	_baseTransPos.y = y;
-	_baseTransPos.z = z;
+void Renderer::setPosCamera(int32 x, int32 y, int32 z) {
+	_cameraPos.x = x;
+	_cameraPos.y = y;
+	_cameraPos.z = z;
 }
 
-void Renderer::setOrthoProjection(int32 x, int32 y, int32 z) {
-	_orthoProjPos.x = x;
-	_orthoProjPos.y = y;
-	_orthoProjPos.z = z;
+void Renderer::setIsoProjection(int32 x, int32 y, int32 scale) {
+	_projectionCenter.x = x;
+	_projectionCenter.y = y;
+	_projectionCenter.z = scale; // not used - IsoScale is always 512
 
-	_isUsingOrthoProjection = true;
+	_isUsingIsoProjection = true;
 }
 
-void Renderer::baseMatrixTranspose() {
-	SWAP(_baseMatrix.row1.y, _baseMatrix.row2.x);
-	SWAP(_baseMatrix.row1.z, _baseMatrix.row3.x);
-	SWAP(_baseMatrix.row2.z, _baseMatrix.row3.y);
+void Renderer::flipMatrix() {
+	SWAP(_matrixWorld.row1.y, _matrixWorld.row2.x);
+	SWAP(_matrixWorld.row1.z, _matrixWorld.row3.x);
+	SWAP(_matrixWorld.row2.z, _matrixWorld.row3.y);
 }
 
-IVec3 Renderer::setBaseRotation(int32 x, int32 y, int32 z, bool transpose) {
-	const double Xradians = (double)((ANGLE_90 - x) % ANGLE_360) * 2 * M_PI / ANGLE_360;
-	const double Yradians = (double)((ANGLE_90 - y) % ANGLE_360) * 2 * M_PI / ANGLE_360;
-	const double Zradians = (double)((ANGLE_90 - z) % ANGLE_360) * 2 * M_PI / ANGLE_360;
-
-	_baseMatrix.row1.x = (int32)(sin(Zradians) * sin(Yradians) * SCENE_SIZE_HALFF);
-	_baseMatrix.row1.y = (int32)(-cos(Zradians) * SCENE_SIZE_HALFF);
-	_baseMatrix.row1.z = (int32)(sin(Zradians) * cos(Yradians) * SCENE_SIZE_HALFF);
-	_baseMatrix.row2.x = (int32)(cos(Zradians) * sin(Xradians) * SCENE_SIZE_HALFF);
-	_baseMatrix.row2.y = (int32)(sin(Zradians) * sin(Xradians) * SCENE_SIZE_HALFF);
-	_baseMatrix.row3.x = (int32)(cos(Zradians) * cos(Xradians) * SCENE_SIZE_HALFF);
-	_baseMatrix.row3.y = (int32)(sin(Zradians) * cos(Xradians) * SCENE_SIZE_HALFF);
-
-	int32 matrixElem = _baseMatrix.row2.x;
-
-	_baseMatrix.row2.x = (int32)(sin(Yradians) * matrixElem + SCENE_SIZE_HALFF * cos(Yradians) * cos(Xradians));
-	_baseMatrix.row2.z = (int32)(cos(Yradians) * matrixElem - SCENE_SIZE_HALFF * sin(Yradians) * cos(Xradians));
-
-	matrixElem = _baseMatrix.row3.x;
-
-	_baseMatrix.row3.x = (int32)(sin(Yradians) * matrixElem - SCENE_SIZE_HALFF * sin(Xradians) * cos(Yradians));
-	_baseMatrix.row3.z = (int32)(cos(Yradians) * matrixElem + SCENE_SIZE_HALFF * sin(Xradians) * sin(Yradians));
-
-	if (transpose) {
-		baseMatrixTranspose();
-	}
-	_baseRotPos = getBaseRotationPosition(_baseTransPos.x, _baseTransPos.y, _baseTransPos.z);
-
-	return _baseRotPos;
+IVec3 Renderer::setInverseAngleCamera(int32 x, int32 y, int32 z) {
+	setAngleCamera(x, y, z);
+	flipMatrix();
+	_cameraRot = longWorldRot(_cameraPos.x, _cameraPos.y, _cameraPos.z);
+	return _cameraRot;
 }
 
-IVec3 Renderer::getBaseRotationPosition(int32 x, int32 y, int32 z) {
-	const int32 vx = (_baseMatrix.row1.x * x + _baseMatrix.row1.y * y + _baseMatrix.row1.z * z) / SCENE_SIZE_HALF;
-	const int32 vy = (_baseMatrix.row2.x * x + _baseMatrix.row2.y * y + _baseMatrix.row2.z * z) / SCENE_SIZE_HALF;
-	const int32 vz = (_baseMatrix.row3.x * x + _baseMatrix.row3.y * y + _baseMatrix.row3.z * z) / SCENE_SIZE_HALF;
+IVec3 Renderer::setAngleCamera(int32 x, int32 y, int32 z) {
+	const double Xradians = (double)((LBAAngles::ANGLE_90 - x) % LBAAngles::ANGLE_360) * 2 * M_PI / LBAAngles::ANGLE_360;
+	const double Yradians = (double)((LBAAngles::ANGLE_90 - y) % LBAAngles::ANGLE_360) * 2 * M_PI / LBAAngles::ANGLE_360;
+	const double Zradians = (double)((LBAAngles::ANGLE_90 - z) % LBAAngles::ANGLE_360) * 2 * M_PI / LBAAngles::ANGLE_360;
+
+	_matrixWorld.row1.x = (int32)(sin(Zradians) * sin(Yradians) * SCENE_SIZE_HALFF);
+	_matrixWorld.row1.y = (int32)(-cos(Zradians) * SCENE_SIZE_HALFF);
+	_matrixWorld.row1.z = (int32)(sin(Zradians) * cos(Yradians) * SCENE_SIZE_HALFF);
+	_matrixWorld.row2.x = (int32)(cos(Zradians) * sin(Xradians) * SCENE_SIZE_HALFF);
+	_matrixWorld.row2.y = (int32)(sin(Zradians) * sin(Xradians) * SCENE_SIZE_HALFF);
+	_matrixWorld.row3.x = (int32)(cos(Zradians) * cos(Xradians) * SCENE_SIZE_HALFF);
+	_matrixWorld.row3.y = (int32)(sin(Zradians) * cos(Xradians) * SCENE_SIZE_HALFF);
+
+	int32 matrixElem = _matrixWorld.row2.x;
+
+	_matrixWorld.row2.x = (int32)(sin(Yradians) * matrixElem + SCENE_SIZE_HALFF * cos(Yradians) * cos(Xradians));
+	_matrixWorld.row2.z = (int32)(cos(Yradians) * matrixElem - SCENE_SIZE_HALFF * sin(Yradians) * cos(Xradians));
+
+	matrixElem = _matrixWorld.row3.x;
+
+	_matrixWorld.row3.x = (int32)(sin(Yradians) * matrixElem - SCENE_SIZE_HALFF * sin(Xradians) * cos(Yradians));
+	_matrixWorld.row3.z = (int32)(cos(Yradians) * matrixElem + SCENE_SIZE_HALFF * sin(Xradians) * sin(Yradians));
+
+	_cameraRot = longWorldRot(_cameraPos.x, _cameraPos.y, _cameraPos.z);
+
+	return _cameraRot;
+}
+
+IVec3 Renderer::worldRotatePoint(const IVec3& vec) {
+	const int32 vx = (_matrixWorld.row1.x * vec.x + _matrixWorld.row1.y * vec.y + _matrixWorld.row1.z * vec.z) / SCENE_SIZE_HALF;
+	const int32 vy = (_matrixWorld.row2.x * vec.x + _matrixWorld.row2.y * vec.y + _matrixWorld.row2.z * vec.z) / SCENE_SIZE_HALF;
+	const int32 vz = (_matrixWorld.row3.x * vec.x + _matrixWorld.row3.y * vec.y + _matrixWorld.row3.z * vec.z) / SCENE_SIZE_HALF;
 	return IVec3(vx, vy, vz);
 }
 
-IVec3 Renderer::getCameraAnglePositions(int32 x, int32 y, int32 z) {
-	const int32 vx = (_baseMatrix.row1.x * x + _baseMatrix.row2.x * y + _baseMatrix.row3.x * z) / SCENE_SIZE_HALF;
-	const int32 vy = (_baseMatrix.row1.y * x + _baseMatrix.row2.y * y + _baseMatrix.row3.y * z) / SCENE_SIZE_HALF;
-	const int32 vz = (_baseMatrix.row1.z * x + _baseMatrix.row2.z * y + _baseMatrix.row3.z * z) / SCENE_SIZE_HALF;
+IVec3 Renderer::longWorldRot(int32 x, int32 y, int32 z) {
+	const int64 vx = ((int64)_matrixWorld.row1.x * (int64)x + (int64)_matrixWorld.row1.y * (int64)y + (int64)_matrixWorld.row1.z * (int64)z) / SCENE_SIZE_HALF;
+	const int64 vy = ((int64)_matrixWorld.row2.x * (int64)x + (int64)_matrixWorld.row2.y * (int64)y + (int64)_matrixWorld.row2.z * (int64)z) / SCENE_SIZE_HALF;
+	const int64 vz = ((int64)_matrixWorld.row3.x * (int64)x + (int64)_matrixWorld.row3.y * (int64)y + (int64)_matrixWorld.row3.z * (int64)z) / SCENE_SIZE_HALF;
+	return IVec3((int32)vx, (int32)vy, (int32)vz);
+}
+
+IVec3 Renderer::longInverseRot(int32 x, int32 y, int32 z) {
+	const int32 vx = (_matrixWorld.row1.x * x + _matrixWorld.row2.x * y + _matrixWorld.row3.x * z) / SCENE_SIZE_HALF;
+	const int32 vy = (_matrixWorld.row1.y * x + _matrixWorld.row2.y * y + _matrixWorld.row3.y * z) / SCENE_SIZE_HALF;
+	const int32 vz = (_matrixWorld.row1.z * x + _matrixWorld.row2.z * y + _matrixWorld.row3.z * z) / SCENE_SIZE_HALF;
 	return IVec3(vx, vy, vz);
 }
 
-IVec3 Renderer::translateGroup(int32 x, int32 y, int32 z) {
-	const int32 vx = (_shadeMatrix.row1.x * x + _shadeMatrix.row1.y * y + _shadeMatrix.row1.z * z) / SCENE_SIZE_HALF;
-	const int32 vy = (_shadeMatrix.row2.x * x + _shadeMatrix.row2.y * y + _shadeMatrix.row2.z * z) / SCENE_SIZE_HALF;
-	const int32 vz = (_shadeMatrix.row3.x * x + _shadeMatrix.row3.y * y + _shadeMatrix.row3.z * z) / SCENE_SIZE_HALF;
+IVec3 Renderer::rot(const IMatrix3x3 &matrix, int32 x, int32 y, int32 z) {
+	const int32 vx = (matrix.row1.x * x + matrix.row1.y * y + matrix.row1.z * z) / SCENE_SIZE_HALF;
+	const int32 vy = (matrix.row2.x * x + matrix.row2.y * y + matrix.row2.z * z) / SCENE_SIZE_HALF;
+	const int32 vz = (matrix.row3.x * x + matrix.row3.y * y + matrix.row3.z * z) / SCENE_SIZE_HALF;
 	return IVec3(vx, vy, vz);
 }
 
-void Renderer::setCameraAngle(int32 transPosX, int32 transPosY, int32 transPosZ, int32 rotPosX, int32 rotPosY, int32 rotPosZ, int32 param6) {
-	_baseTransPos.x = transPosX;
-	_baseTransPos.y = transPosY;
-	_baseTransPos.z = transPosZ;
+void Renderer::setFollowCamera(int32 transPosX, int32 transPosY, int32 transPosZ, int32 cameraAlpha, int32 cameraBeta, int32 cameraGamma, int32 cameraZoom) {
+	_cameraPos.x = transPosX;
+	_cameraPos.y = transPosY;
+	_cameraPos.z = transPosZ;
 
-	setBaseRotation(rotPosX, rotPosY, rotPosZ);
+	setAngleCamera(cameraAlpha, cameraBeta, cameraGamma);
+	_cameraRot.z += cameraZoom;
 
-	_baseRotPos.z += param6;
-
-	_baseTransPos = updateCameraAnglePositions();
+	_cameraPos = longInverseRot(_cameraRot.x, _cameraRot.y, _cameraRot.z);
 }
 
-IVec3 Renderer::updateCameraAnglePositions(int zShift) {
-	return getCameraAnglePositions(_baseRotPos.x, _baseRotPos.y, _baseRotPos.z + zShift);
-}
+IVec3 Renderer::getHolomapRotation(const int32 x, const int32 y, const int32 angle) const {
+	if (angle) {
+		const int32 nSin = lba1ShadeAngleTable[ClampAngle(angle)];
+		const int32 nCos = lba1ShadeAngleTable[ClampAngle((angle + LBAAngles::ANGLE_90))];
 
-IVec3 Renderer::getHolomapRotation(const int32 angleX, const int32 angleY, const int32 angleZ) const {
-	int32 rotX = angleX * 2 + 1000;
-
-	int32 rotY;
-	if (angleY == ANGLE_0) {
-		rotY = ANGLE_0;
-	} else {
-		rotY = -shadeAngleTable[ClampAngle(angleY)] * rotX / SCENE_SIZE_HALF;
-		rotX = shadeAngleTable[ClampAngle(angleY + ANGLE_90)] * rotX / SCENE_SIZE_HALF;
+		const int32 x0 = ((x * nCos) + (y * nSin)) >> 14;
+		const int32 y0 = ((y * nCos) - (x * nSin)) >> 14;
+		return IVec3(x0, y0, 0);
 	}
-
-	int32 rotZ;
-	if (angleZ == ANGLE_0) {
-		rotZ = ANGLE_0;
-	} else {
-		rotZ = -shadeAngleTable[ClampAngle(angleZ)] * rotX / SCENE_SIZE_HALF;
-		rotX = shadeAngleTable[ClampAngle(angleZ + ANGLE_90)] * rotX / SCENE_SIZE_HALF;
-	}
-
-	const int32 row1X = _baseMatrix.row1.x * rotX;
-	const int32 row1Y = _baseMatrix.row1.y * rotY;
-	const int32 row1Z = _baseMatrix.row1.z * rotZ;
-	const int32 row2X = _baseMatrix.row2.x * rotX;
-	const int32 row2Y = _baseMatrix.row2.y * rotY;
-	const int32 row2Z = _baseMatrix.row2.z * rotZ;
-	const int32 row3X = _baseMatrix.row3.x * rotX;
-	const int32 row3Y = _baseMatrix.row3.y * rotY;
-	const int32 row3Z = _baseMatrix.row3.z * rotZ;
-	IVec3 vec;
-	vec.x = (row1X + row1Y + row1Z) / SCENE_SIZE_HALF;
-	vec.y = (row2X + row2Y + row2Z) / SCENE_SIZE_HALF;
-	vec.z = (row3X + row3Y + row3Z) / SCENE_SIZE_HALF;
-	return vec;
+	return IVec3(x, y, 0);
 }
 
-void Renderer::applyRotation(IMatrix3x3 *targetMatrix, const IMatrix3x3 *currentMatrix, const IVec3 &angleVec) {
+void Renderer::rotMatIndex2(IMatrix3x3 *targetMatrix, const IMatrix3x3 *currentMatrix, const IVec3 &angleVec) {
 	IMatrix3x3 matrix1;
 	IMatrix3x3 matrix2;
 
 	if (angleVec.x) {
 		int32 angle = angleVec.x;
-		int32 angleVar2 = shadeAngleTable[ClampAngle(angle)];
-		angle += ANGLE_90;
-		int32 angleVar1 = shadeAngleTable[ClampAngle(angle)];
+		int32 angleVar2 = lba1ShadeAngleTable[ClampAngle(angle)];
+		angle += LBAAngles::ANGLE_90;
+		int32 angleVar1 = lba1ShadeAngleTable[ClampAngle(angle)];
 
 		matrix1.row1.x = currentMatrix->row1.x;
 		matrix1.row2.x = currentMatrix->row2.x;
@@ -246,9 +242,9 @@ void Renderer::applyRotation(IMatrix3x3 *targetMatrix, const IMatrix3x3 *current
 
 	if (angleVec.z) {
 		int32 angle = angleVec.z;
-		int32 angleVar2 = shadeAngleTable[ClampAngle(angle)];
-		angle += ANGLE_90;
-		int32 angleVar1 = shadeAngleTable[ClampAngle(angle)];
+		int32 angleVar2 = lba1ShadeAngleTable[ClampAngle(angle)];
+		angle += LBAAngles::ANGLE_90;
+		int32 angleVar1 = lba1ShadeAngleTable[ClampAngle(angle)];
 
 		matrix2.row1.z = matrix1.row1.z;
 		matrix2.row2.z = matrix1.row2.z;
@@ -266,9 +262,9 @@ void Renderer::applyRotation(IMatrix3x3 *targetMatrix, const IMatrix3x3 *current
 
 	if (angleVec.y) {
 		int32 angle = angleVec.y;
-		int32 angleVar2 = shadeAngleTable[ClampAngle(angle)];
-		angle += ANGLE_90;
-		int32 angleVar1 = shadeAngleTable[ClampAngle(angle)];
+		int32 angleVar2 = lba1ShadeAngleTable[ClampAngle(angle)];
+		angle += LBAAngles::ANGLE_90;
+		int32 angleVar1 = lba1ShadeAngleTable[ClampAngle(angle)];
 
 		targetMatrix->row1.y = matrix2.row1.y;
 		targetMatrix->row2.y = matrix2.row2.y;
@@ -286,12 +282,21 @@ void Renderer::applyRotation(IMatrix3x3 *targetMatrix, const IMatrix3x3 *current
 	}
 }
 
+bool isPolygonVisible(const ComputedVertex *vertices) { // TestVuePoly
+	const int32 a = ((int32)vertices[0].y - (int32)vertices[2].y) * ((int32)vertices[1].x - (int32)vertices[0].x);
+	const int32 b = ((int32)vertices[1].y - (int32)vertices[0].y) * ((int32)vertices[0].x - (int32)vertices[2].x);
+	if (a <= b) {
+		return false;
+	}
+	return true;
+}
+
 void Renderer::applyPointsRotation(const Common::Array<BodyVertex> &vertices, int32 firstPoint, int32 numPoints, I16Vec3 *destPoints, const IMatrix3x3 *rotationMatrix, const IVec3 &destPos) {
 	for (int32 i = 0; i < numPoints; ++i) {
 		const BodyVertex &vertex = vertices[i + firstPoint];
-		destPoints->x = ((rotationMatrix->row1.x * vertex.x + rotationMatrix->row1.y * vertex.y + rotationMatrix->row1.z * vertex.z) / SCENE_SIZE_HALF) + destPos.x;
-		destPoints->y = ((rotationMatrix->row2.x * vertex.x + rotationMatrix->row2.y * vertex.y + rotationMatrix->row2.z * vertex.z) / SCENE_SIZE_HALF) + destPos.y;
-		destPoints->z = ((rotationMatrix->row3.x * vertex.x + rotationMatrix->row3.y * vertex.y + rotationMatrix->row3.z * vertex.z) / SCENE_SIZE_HALF) + destPos.z;
+		destPoints->x = (int16)((rotationMatrix->row1.x * vertex.x + rotationMatrix->row1.y * vertex.y + rotationMatrix->row1.z * vertex.z) / SCENE_SIZE_HALF) + destPos.x;
+		destPoints->y = (int16)((rotationMatrix->row2.x * vertex.x + rotationMatrix->row2.y * vertex.y + rotationMatrix->row2.z * vertex.z) / SCENE_SIZE_HALF) + destPos.y;
+		destPoints->z = (int16)((rotationMatrix->row3.x * vertex.x + rotationMatrix->row3.y * vertex.y + rotationMatrix->row3.z * vertex.z) / SCENE_SIZE_HALF) + destPos.z;
 
 		destPoints++;
 	}
@@ -306,7 +311,7 @@ void Renderer::processRotatedElement(IMatrix3x3 *targetMatrix, const Common::Arr
 	IVec3 destPos;
 	// if its the first point
 	if (bone.isRoot()) {
-		currentMatrix = &_baseMatrix;
+		currentMatrix = &_matrixWorld;
 	} else {
 		const int32 pointIdx = bone.vertex;
 		const int32 matrixIndex = bone.parent;
@@ -316,7 +321,7 @@ void Renderer::processRotatedElement(IMatrix3x3 *targetMatrix, const Common::Arr
 		destPos = modelData->computedPoints[pointIdx];
 	}
 
-	applyRotation(targetMatrix, currentMatrix, renderAngle);
+	rotMatIndex2(targetMatrix, currentMatrix, renderAngle);
 
 	if (!numOfPoints) {
 		warning("RENDER WARNING: No points in this model!");
@@ -349,7 +354,7 @@ void Renderer::processTranslatedElement(IMatrix3x3 *targetMatrix, const Common::
 	IVec3 destPos;
 
 	if (bone.isRoot()) { // base point
-		*targetMatrix = _baseMatrix;
+		*targetMatrix = _matrixWorld;
 	} else { // dependent
 		const int32 pointsIdx = bone.vertex;
 		destPos = modelData->computedPoints[pointsIdx];
@@ -363,24 +368,21 @@ void Renderer::processTranslatedElement(IMatrix3x3 *targetMatrix, const Common::
 }
 
 void Renderer::setLightVector(int32 angleX, int32 angleY, int32 angleZ) {
-	// TODO: RECHECK THIS
-	/*_cameraAngleX = angleX;
-	_cameraAngleY = angleY;
-	_cameraAngleZ = angleZ;*/
 	const int32 normalUnit = 64;
 	const IVec3 renderAngle(angleX, angleY, angleZ);
-	applyRotation(&_shadeMatrix, &_baseMatrix, renderAngle);
-	_lightNorm = translateGroup(0, 0, normalUnit - 5);
+	IMatrix3x3 matrix;
+	rotMatIndex2(&matrix, &_matrixWorld, renderAngle);
+	_normalLight = rot(matrix, 0, 0, normalUnit - 5);
 }
 
 static FORCEINLINE int16 clamp(int16 x, int16 a, int16 b) {
 	return x < a ? a : (x > b ? b : x);
 }
 
-int16 Renderer::leftClip(int16 polyRenderType, Vertex** offTabPoly, int32 numVertices) {
+int16 Renderer::leftClip(int16 polyRenderType, ComputedVertex** offTabPoly, int32 numVertices) {
 	const Common::Rect &clip = _engine->_interface->_clip;
-	Vertex *pTabPolyClip = offTabPoly[1];
-	Vertex *pTabPoly = offTabPoly[0];
+	ComputedVertex *pTabPolyClip = offTabPoly[1];
+	ComputedVertex *pTabPoly = offTabPoly[0];
 	int16 newNbPoints = 0;
 
 	// invert the pointers to continue on the clipped vertices in the next method
@@ -388,8 +390,8 @@ int16 Renderer::leftClip(int16 polyRenderType, Vertex** offTabPoly, int32 numVer
 	offTabPoly[1] = pTabPoly;
 
 	for (; numVertices > 0; --numVertices, pTabPoly++) {
-		const Vertex *p0 = pTabPoly;
-		const Vertex *p1 = p0 + 1;
+		const ComputedVertex *p0 = pTabPoly;
+		const ComputedVertex *p1 = p0 + 1;
 
 		// clipFlag :
 		// 0x00 : none clipped
@@ -424,7 +426,7 @@ int16 Renderer::leftClip(int16 polyRenderType, Vertex** offTabPoly, int32 numVer
 			pTabPolyClip->x = (int16)clip.left;
 
 			if (polyRenderType >= POLYGONTYPE_GOURAUD) {
-				pTabPolyClip->colorIndex = (int16)(p0->colorIndex + (((p1->colorIndex - p0->colorIndex) * dxClip) / dx));
+				pTabPolyClip->intensity = (int16)(p0->intensity + (((p1->intensity - p0->intensity) * dxClip) / dx));
 			}
 
 			++pTabPolyClip;
@@ -437,10 +439,10 @@ int16 Renderer::leftClip(int16 polyRenderType, Vertex** offTabPoly, int32 numVer
 	return newNbPoints;
 }
 
-int16 Renderer::rightClip(int16 polyRenderType, Vertex** offTabPoly, int32 numVertices) {
+int16 Renderer::rightClip(int16 polyRenderType, ComputedVertex** offTabPoly, int32 numVertices) {
 	const Common::Rect &clip = _engine->_interface->_clip;
-	Vertex *pTabPolyClip = offTabPoly[1];
-	Vertex *pTabPoly = offTabPoly[0];
+	ComputedVertex *pTabPolyClip = offTabPoly[1];
+	ComputedVertex *pTabPoly = offTabPoly[0];
 	int16 newNbPoints = 0;
 
 	// invert the pointers to continue on the clipped vertices in the next method
@@ -448,8 +450,8 @@ int16 Renderer::rightClip(int16 polyRenderType, Vertex** offTabPoly, int32 numVe
 	offTabPoly[1] = pTabPoly;
 
 	for (; numVertices > 0; --numVertices, pTabPoly++) {
-		const Vertex *p0 = pTabPoly;
-		const Vertex *p1 = p0 + 1;
+		const ComputedVertex *p0 = pTabPoly;
+		const ComputedVertex *p1 = p0 + 1;
 
 		// clipFlag :
 		// 0x00 : none clipped
@@ -484,7 +486,7 @@ int16 Renderer::rightClip(int16 polyRenderType, Vertex** offTabPoly, int32 numVe
 			pTabPolyClip->x = (int16)clip.right;
 
 			if (polyRenderType >= POLYGONTYPE_GOURAUD) {
-				pTabPolyClip->colorIndex = (int16)(p0->colorIndex + (((p1->colorIndex - p0->colorIndex) * dxClip) / dx));
+				pTabPolyClip->intensity = (int16)(p0->intensity + (((p1->intensity - p0->intensity) * dxClip) / dx));
 			}
 
 			++pTabPolyClip;
@@ -497,10 +499,10 @@ int16 Renderer::rightClip(int16 polyRenderType, Vertex** offTabPoly, int32 numVe
 	return newNbPoints;
 }
 
-int16 Renderer::topClip(int16 polyRenderType, Vertex** offTabPoly, int32 numVertices) {
+int16 Renderer::topClip(int16 polyRenderType, ComputedVertex** offTabPoly, int32 numVertices) {
 	const Common::Rect &clip = _engine->_interface->_clip;
-	Vertex *pTabPolyClip = offTabPoly[1];
-	Vertex *pTabPoly = offTabPoly[0];
+	ComputedVertex *pTabPolyClip = offTabPoly[1];
+	ComputedVertex *pTabPoly = offTabPoly[0];
 	int16 newNbPoints = 0;
 
 	// invert the pointers to continue on the clipped vertices in the next method
@@ -508,8 +510,8 @@ int16 Renderer::topClip(int16 polyRenderType, Vertex** offTabPoly, int32 numVert
 	offTabPoly[1] = pTabPoly;
 
 	for (; numVertices > 0; --numVertices, pTabPoly++) {
-		const Vertex *p0 = pTabPoly;
-		const Vertex *p1 = p0 + 1;
+		const ComputedVertex *p0 = pTabPoly;
+		const ComputedVertex *p1 = p0 + 1;
 
 		// clipFlag :
 		// 0x00 : none clipped
@@ -544,7 +546,7 @@ int16 Renderer::topClip(int16 polyRenderType, Vertex** offTabPoly, int32 numVert
 			pTabPolyClip->y = (int16)clip.top;
 
 			if (polyRenderType >= POLYGONTYPE_GOURAUD) {
-				pTabPolyClip->colorIndex = (int16)(p0->colorIndex + (((p1->colorIndex - p0->colorIndex) * dyClip) / dy));
+				pTabPolyClip->intensity = (int16)(p0->intensity + (((p1->intensity - p0->intensity) * dyClip) / dy));
 			}
 
 			++pTabPolyClip;
@@ -557,10 +559,10 @@ int16 Renderer::topClip(int16 polyRenderType, Vertex** offTabPoly, int32 numVert
 	return newNbPoints;
 }
 
-int16 Renderer::bottomClip(int16 polyRenderType, Vertex** offTabPoly, int32 numVertices) {
+int16 Renderer::bottomClip(int16 polyRenderType, ComputedVertex** offTabPoly, int32 numVertices) {
 	const Common::Rect &clip = _engine->_interface->_clip;
-	Vertex *pTabPolyClip = offTabPoly[1];
-	Vertex *pTabPoly = offTabPoly[0];
+	ComputedVertex *pTabPolyClip = offTabPoly[1];
+	ComputedVertex *pTabPoly = offTabPoly[0];
 	int16 newNbPoints = 0;
 
 	// invert the pointers to continue on the clipped vertices in the next method
@@ -568,8 +570,8 @@ int16 Renderer::bottomClip(int16 polyRenderType, Vertex** offTabPoly, int32 numV
 	offTabPoly[1] = pTabPoly;
 
 	for (; numVertices > 0; --numVertices, pTabPoly++) {
-		const Vertex *p0 = pTabPoly;
-		const Vertex *p1 = p0 + 1;
+		const ComputedVertex *p0 = pTabPoly;
+		const ComputedVertex *p1 = p0 + 1;
 
 		// clipFlag :
 		// 0x00 : none clipped
@@ -604,7 +606,7 @@ int16 Renderer::bottomClip(int16 polyRenderType, Vertex** offTabPoly, int32 numV
 			pTabPolyClip->y = (int16)clip.bottom;
 
 			if (polyRenderType >= POLYGONTYPE_GOURAUD) {
-				pTabPolyClip->colorIndex = (int16)(p0->colorIndex + (((p1->colorIndex - p0->colorIndex) * dyClip) / dy));
+				pTabPolyClip->intensity = (int16)(p0->intensity + (((p1->intensity - p0->intensity) * dyClip) / dy));
 			}
 
 			++pTabPolyClip;
@@ -617,7 +619,7 @@ int16 Renderer::bottomClip(int16 polyRenderType, Vertex** offTabPoly, int32 numV
 	return newNbPoints;
 }
 
-int32 Renderer::computePolyMinMax(int16 polyRenderType, Vertex **offTabPoly, int32 numVertices) {
+int32 Renderer::computePolyMinMax(int16 polyRenderType, ComputedVertex **offTabPoly, int32 numVertices, int &vtop, int &vbottom) {
 	const Common::Rect &clip = _engine->_interface->_clip;
 	if (clip.isEmpty()) {
 		return numVertices;
@@ -628,7 +630,7 @@ int32 Renderer::computePolyMinMax(int16 polyRenderType, Vertex **offTabPoly, int
 	int32 minsy = SCENE_SIZE_MAX;
 	int32 maxsy = SCENE_SIZE_MIN;
 
-	Vertex* pTabPoly = offTabPoly[0];
+	ComputedVertex* pTabPoly = offTabPoly[0];
 	for (int32 i = 0; i < numVertices; i++) {
 		if (pTabPoly[i].x < minsx) {
 			minsx = pTabPoly[i].x;
@@ -710,125 +712,129 @@ int32 Renderer::computePolyMinMax(int16 polyRenderType, Vertex **offTabPoly, int
 		}
 	}
 
+	vtop = minsy;
+	vbottom = maxsy;
+
 	return clippedNumVertices;
 }
 
-bool Renderer::computePoly(int16 polyRenderType, const Vertex *vertices, int32 numVertices) {
-	const int16 *polyTabBegin = _polyTab;
-	const int16 *polyTabEnd = &_polyTab[_polyTabSize - 1];
-	const int16 *colProgressBufStart = _colorProgressionBuffer;
-	const int16 *colProgressBufEnd = &_colorProgressionBuffer[_polyTabSize - 1];
-	const int screenHeight = _engine->height();
-
+bool Renderer::computePoly(int16 polyRenderType, const ComputedVertex *vertices, int32 numVertices, int &vtop, int &vbottom) {
 	assert(numVertices < ARRAYSIZE(_clippedPolygonVertices1));
 	for (int i = 0; i < numVertices; ++i) {
 		_clippedPolygonVertices1[i] = vertices[i];
 	}
 
-	Vertex *offTabPoly[] = {_clippedPolygonVertices1, _clippedPolygonVertices2};
+	ComputedVertex *offTabPoly[] = {_clippedPolygonVertices1, _clippedPolygonVertices2};
 
-	numVertices = computePolyMinMax(polyRenderType, offTabPoly, numVertices);
+	numVertices = computePolyMinMax(polyRenderType, offTabPoly, numVertices, vtop, vbottom);
 	if (numVertices == 0) {
 		return false;
 	}
 
-	const Vertex *clippedVertices = offTabPoly[0];
-	uint8 vertexParam1 = clippedVertices[numVertices - 1].colorIndex;
-	int16 currentVertexX = clippedVertices[numVertices - 1].x;
-	int16 currentVertexY = clippedVertices[numVertices - 1].y;
+	ComputedVertex *pTabPoly = offTabPoly[0];
+	ComputedVertex *p0;
+	ComputedVertex *p1;
+	int16 *pVertic;
+	int16 *pCoul;
+	int32 incY;
+	int32 dx, dy, x, y, dc;
+	int32 step, reminder;
 
-	for (int32 nVertex = 0; nVertex < numVertices; nVertex++) {
-		const int16 oldVertexY = currentVertexY;
-		const int16 oldVertexX = currentVertexX;
-		const uint8 oldVertexParam = vertexParam1;
+	for (; numVertices > 0; --numVertices, pTabPoly++) {
+		pCoul = NULL;
+		p0 = pTabPoly;
+		p1 = p0 + 1;
 
-		vertexParam1 = clippedVertices[nVertex].colorIndex;
-		const uint8 vertexParam2 = vertexParam1;
-		currentVertexX = clippedVertices[nVertex].x;
-		currentVertexY = clippedVertices[nVertex].y;
-
-		// drawLine(oldVertexX,oldVertexY,currentVertexX,currentVertexY,255);
-
-		if (currentVertexY == oldVertexY) {
+		dy = p1->y - p0->y;
+		if (dy == 0) {
+			// forget same Y points
 			continue;
-		}
-
-		const int8 up = currentVertexY < oldVertexY;
-		int8 direction = up ? -1 : 1;
-
-		const int16 vsize = ABS(currentVertexY - oldVertexY);
-		const int16 hsize = ABS(currentVertexX - oldVertexX);
-
-		int16 cvalue;
-		int16 cdelta;
-		int16 ypos;
-		float xpos;
-		if (direction * oldVertexX > direction * currentVertexX) { // if we are going up right
-			xpos = currentVertexX;
-			ypos = currentVertexY;
-			cvalue = (vertexParam2 * 256) + ((oldVertexParam - vertexParam2) * 256) % vsize;
-			cdelta = ((oldVertexParam - vertexParam2) * 256) / vsize;
-			direction = -direction; // we will draw by going down the tab
-		} else {
-			xpos = oldVertexX;
-			ypos = oldVertexY;
-			cvalue = (oldVertexParam * 256) + ((vertexParam2 - oldVertexParam) * 256) % vsize;
-			cdelta = ((vertexParam2 - oldVertexParam) * 256) / vsize;
-		}
-		const int32 polyTabIndex = ypos + (up ? screenHeight : 0);
-		int16 *outPtr = &_polyTab[polyTabIndex]; // outPtr is the output ptr in the renderTab
-
-		float slope = (float)hsize / (float)vsize;
-		slope = up ? -slope : slope;
-
-		for (int16 i = 0; i <= vsize; i++) {
-			if (outPtr >= polyTabBegin && outPtr <= polyTabEnd) {
-				*outPtr = xpos;
+		} else if (dy > 0) {
+			// Y descend donc buffer gauche
+			if (p0->x <= p1->x) {
+				incY = 1;
+			} else {
+				p0 = p1;
+				p1 = pTabPoly;
+				incY = -1;
 			}
-			outPtr += direction;
-			xpos += slope;
+
+			pVertic = &_tabVerticG[p0->y];
+
+			if (polyRenderType >= POLYGONTYPE_GOURAUD) {
+				pCoul = &_tabCoulG[p0->y];
+			}
+		} else if (dy < 0) {
+			dy = -dy;
+
+			if (p0->x <= p1->x) {
+				p0 = p1;
+				p1 = pTabPoly;
+				incY = 1;
+			} else {
+				incY = -1;
+			}
+
+			pVertic = &_tabVerticD[p0->y];
+
+			if (polyRenderType >= POLYGONTYPE_GOURAUD) {
+				pCoul = &_tabCoulD[p0->y];
+			}
 		}
 
-		if (polyRenderType >= POLYGONTYPE_GOURAUD) { // we must compute the color progression
-			int16 *outPtr2 = &_colorProgressionBuffer[polyTabIndex];
+		dx = (p1->x - p0->x) << 16;
 
-			for (int16 i = 0; i <= vsize; i++) {
-				if (outPtr2 >= colProgressBufStart && outPtr2 <= colProgressBufEnd) {
-					*outPtr2 = cvalue;
-				}
-				outPtr2 += direction;
-				cvalue += cdelta;
+		step = dx / dy;
+		reminder = ((dx % dy) >> 1) + 0x7FFF;
+
+		dx = step >> 16; // recup partie haute division (entier)
+		step &= 0xFFFF;  // conserve partie basse (mantisse)
+		x = p0->x;
+
+		for (y = dy; y >= 0; --y) {
+			*pVertic = (int16)x;
+			pVertic += incY;
+			x += dx;
+			reminder += step;
+			if (reminder & 0xFFFF0000) {
+				x += reminder >> 16;
+				reminder &= 0xFFFF;
+			}
+		}
+
+		if (pCoul) {
+			dc = (p1->intensity - p0->intensity) << 8;
+			step = dc / dy;
+			reminder = ((((dc % dy) >> 1) + 0x7F) & 0xFF) | (p0->intensity << 8);
+
+			for (y = dy; y >= 0; --y) {
+				*pCoul = (int16)reminder;
+				pCoul += incY;
+				reminder += step;
 			}
 		}
 	}
+
 	return true;
 }
 
-void Renderer::renderPolygonsCopper(int vtop, int32 vsize, uint16 color) const {
-	uint8 *out = (uint8 *)_engine->_frontVideoBuffer.getBasePtr(0, vtop);
-	const int16 *ptr1 = &_polyTab[vtop];
+void Renderer::svgaPolyCopper(int16 vtop, int16 Ymax, uint16 color) const {
 	const int screenWidth = _engine->width();
-	const int screenHeight = _engine->height();
-
-	int32 renderLoop = vsize;
-	if (vtop < 0) {
-		out += screenWidth * ABS(vtop);
-		renderLoop -= ABS(vtop);
-	}
-	if (renderLoop > screenHeight) {
-		renderLoop = screenHeight;
-	}
+	int16 xMin, xMax;
+	int16 y = vtop;
+	byte *pDestLine = (uint8 *)_engine->_frontVideoBuffer.getBasePtr(0, y);
+	byte *pDest;
+	int16 *pVerticG = &_tabVerticG[y];
+	int16 *pVerticD = &_tabVerticD[y];
 	int32 sens = 1;
 
-	for (int32 currentLine = 0; currentLine < renderLoop; ++currentLine) {
-		int16 xMin = ptr1[0];
-		int16 xMax = ptr1[screenHeight];
-
-		ptr1++;
-		uint8 *pDest = out + xMin;
+	for (; y <= Ymax; y++) {
+		xMin = *pVerticG++;
+		xMax = *pVerticD++;
+		pDest = pDestLine + xMin;
 
 		for (; xMin <= xMax; xMin++) {
-			*pDest++ = (uint8)color;
+			*pDest++ = (byte)color;
 		}
 
 		color += sens;
@@ -838,34 +844,29 @@ void Renderer::renderPolygonsCopper(int vtop, int32 vsize, uint16 color) const {
 				color += sens;
 			}
 		}
-		out += screenWidth;
+
+		pDestLine += screenWidth;
 	}
 }
 
-void Renderer::renderPolygonsBopper(int vtop, int32 vsize, uint16 color) const {
-	uint8 *out = (uint8 *)_engine->_frontVideoBuffer.getBasePtr(0, vtop);
-	const int16 *ptr1 = &_polyTab[vtop];
+void Renderer::svgaPolyBopper(int16 vtop, int16 Ymax, uint16 color) const {
 	const int screenWidth = _engine->width();
-	const int screenHeight = _engine->height();
-	int32 renderLoop = vsize;
-	if (vtop < 0) {
-		out += screenWidth * ABS(vtop);
-		renderLoop -= ABS(vtop);
-	}
-	if (renderLoop > screenHeight) {
-		renderLoop = screenHeight;
-	}
+	int16 xMin, xMax;
+	int16 y = vtop;
+	byte *pDestLine = (uint8 *)_engine->_frontVideoBuffer.getBasePtr(0, y);
+	byte *pDest;
+	int16 *pVerticG = &_tabVerticG[y];
+	int16 *pVerticD = &_tabVerticD[y];
 	int32 sens = 1;
 	int32 line = 2;
-	for (int32 currentLine = 0; currentLine < renderLoop; ++currentLine) {
-		int16 xMin = ptr1[0];
-		int16 xMax = ptr1[screenHeight];
-		ptr1++;
 
-		uint8 *pDest = out + xMin;
+	for (; y <= Ymax; y++) {
+		xMin = *pVerticG++;
+		xMax = *pVerticD++;
+		pDest = pDestLine + xMin;
 
 		for (; xMin <= xMax; xMin++) {
-			*pDest++ = (uint8)color;
+			*pDest++ = (byte)color;
 		}
 
 		line--;
@@ -879,373 +880,256 @@ void Renderer::renderPolygonsBopper(int vtop, int32 vsize, uint16 color) const {
 				}
 			}
 		}
-		out += screenWidth;
+
+		pDestLine += screenWidth;
 	}
 }
 
-void Renderer::renderPolygonsFlat(int vtop, int32 vsize, uint16 color) const {
-	uint8 *out = (uint8 *)_engine->_frontVideoBuffer.getBasePtr(0, vtop);
-	const int16 *ptr1 = &_polyTab[vtop];
+void Renderer::svgaPolyTriste(int16 vtop, int16 Ymax, uint16 color) const {
 	const int screenWidth = _engine->width();
-	const int screenHeight = _engine->height();
-	int32 renderLoop = vsize;
-	if (vtop < 0) {
-		out += screenWidth * ABS(vtop);
-		renderLoop -= ABS(vtop);
-	}
-	if (renderLoop > screenHeight) {
-		renderLoop = screenHeight;
-	}
-	for (int32 currentLine = 0; currentLine < renderLoop; ++currentLine) {
-		const int16 start = ptr1[0];
-		const int16 stop = ptr1[screenHeight];
-		ptr1++;
-		const int32 hsize = stop - start;
+	int16 xMin, xMax;
+	int16 y = vtop;
+	byte *pDestLine = (uint8 *)_engine->_frontVideoBuffer.getBasePtr(0, vtop);
+	byte *pDest;
+	int16 *pVerticG = &_tabVerticG[y];
+	int16 *pVerticD = &_tabVerticD[y];
 
-		for (int32 j = start; j <= hsize + start; j++) {
-			if (j >= 0 && j < screenWidth) {
-				out[j] = color;
-			}
+	for (; y <= Ymax; y++) {
+		xMin = *pVerticG++;
+		xMax = *pVerticD++;
+		pDest = pDestLine + xMin;
+
+		for (; xMin <= xMax; xMin++) {
+			*pDest++ = (byte)color;
 		}
-		out += screenWidth;
+
+		pDestLine += screenWidth;
 	}
 }
 
+#define ROL8(x,b) (byte)(((x) << (b)) | ((x) >> (8 - (b))))
 #define ROL16(x, b) (((x) << (b)) | ((x) >> (16 - (b))))
 
-void Renderer::renderPolygonsTele(int vtop, int32 vsize, uint16 color) const {
-	uint8 *out = (uint8 *)_engine->_frontVideoBuffer.getBasePtr(0, vtop);
-	const int16 *ptr1 = &_polyTab[vtop];
+void Renderer::svgaPolyTele(int16 vtop, int16 Ymax, uint16 color) const {
 	const int screenWidth = _engine->width();
-	const int screenHeight = _engine->height();
-
-	int32 renderLoop = vsize;
-	if (vtop < 0) {
-		out += screenWidth * ABS(vtop);
-		renderLoop -= ABS(vtop);
-	}
-	if (renderLoop > screenHeight) {
-		renderLoop = screenHeight;
-	}
-
-	uint16 acc = 17371;
-	color &= 0xFF;
+	int16 xMin, xMax;
+	int16 y = vtop;
+	int16 acc = 17371;
+	byte *pDestLine = (uint8 *)_engine->_frontVideoBuffer.getBasePtr(0, vtop);
+	byte *pDest;
+	int16 *pVerticG = &_tabVerticG[y];
+	int16 *pVerticD = &_tabVerticD[y];
 	uint16 col;
-	for (int32 currentLine = 0; currentLine < renderLoop; ++currentLine) {
-		int16 xMin = ptr1[0];
-		int16 xMax = ptr1[screenHeight];
-		++ptr1;
-		uint8 *pDest = out + xMin;
+
+	color &= 0xFF;
+
+	for (; y <= Ymax; y++) {
+		xMin = *pVerticG++;
+		xMax = *pVerticD++;
+		pDest = pDestLine + xMin;
 		col = xMin;
 
 		for (; xMin <= xMax; xMin++) {
 			col = ((col + acc) & 0xFF03) + (uint16)color;
 			acc = ROL16(acc, 2) + 1;
 
-			*pDest++ = (uint8)col;
+			*pDest++ = (byte)col;
 		}
-		out += screenWidth;
+
+		pDestLine += screenWidth;
 	}
 }
 
-void Renderer::renderPolygonsTrans(int vtop, int32 vsize, uint16 color) const {
-	uint8 *out = (uint8 *)_engine->_frontVideoBuffer.getBasePtr(0, vtop);
-	const int16 *ptr1 = &_polyTab[vtop];
+void Renderer::svgaPolyTrans(int16 vtop, int16 Ymax, uint16 color) const {
 	const int screenWidth = _engine->width();
-	const int screenHeight = _engine->height();
+	int16 xMin, xMax;
+	int16 y = vtop;
+	byte *pDestLine = (uint8 *)_engine->_frontVideoBuffer.getBasePtr(0, vtop);
+	byte *pDest;
+	int16 *pVerticG = &_tabVerticG[y];
+	int16 *pVerticD = &_tabVerticD[y];
 
-	do {
-		int16 start = ptr1[0];
-		int16 stop = ptr1[screenHeight];
+	color &= 0xF0;
 
-		ptr1++;
-		int32 hsize = stop - start;
+	for (; y <= Ymax; y++) {
+		xMin = *pVerticG++;
+		xMax = *pVerticD++;
+		pDest = pDestLine + xMin;
 
-		if (hsize >= 0) {
-			hsize++;
-			uint8 *out2 = start + out;
-			*out2 = (*(out2)&0x0F) | color;
-			out2++;
+		for (; xMin <= xMax; xMin++) {
+			*pDest = (byte)color | (*pDest & 0x0F);
+			pDest++;
 		}
-		out += screenWidth;
-	} while (--vsize);
+
+		pDestLine += screenWidth;
+	}
 }
 
 // Used e.g for the legs of the horse or the ears of most characters
-void Renderer::renderPolygonsTrame(int vtop, int32 vsize, uint16 color) const {
-	uint8 *out = (uint8 *)_engine->_frontVideoBuffer.getBasePtr(0, vtop);
-	const int16 *ptr1 = &_polyTab[vtop];
+void Renderer::svgaPolyTrame(int16 vtop, int16 Ymax, uint16 color) const {
 	const int screenWidth = _engine->width();
-	const int screenHeight = _engine->height();
-
-	int32 renderLoop = vsize;
-	if (vtop < 0) {
-		out += screenWidth * ABS(vtop);
-		renderLoop -= ABS(vtop);
-	}
-	if (renderLoop > screenHeight) {
-		renderLoop = screenHeight;
-	}
+	int16 xMin, xMax;
+	int16 y = vtop;
+	byte *pDestLine = (uint8 *)_engine->_frontVideoBuffer.getBasePtr(0, vtop);
+	byte *pDest;
+	int16 *pVerticG = &_tabVerticG[y];
+	int16 *pVerticD = &_tabVerticD[y];
 	int32 pair = 0;
-	for (int32 currentLine = 0; currentLine < renderLoop; ++currentLine) {
-		int16 start = ptr1[0];
-		int16 stop = ptr1[screenHeight];
-		ptr1++;
-		uint8 *out2 = start + out;
-		stop = ((stop - start) + 1) / 2;
-		if (stop > 0) {
+
+	for (; y <= Ymax; y++) {
+		xMin = *pVerticG++;
+		xMax = *pVerticD++;
+		pDest = pDestLine + xMin;
+
+		xMax = ((xMax - xMin) + 1) / 2;
+		if (xMax > 0) {
 			pair ^= 1; // paire/impair
-			if ((start & 1) ^ pair) {
-				out2++;
+			if ((xMin & 1) ^ pair) {
+				pDest++;
 			}
 
-			for (; stop > 0; stop--) {
-				*out2 = color;
-				out2 += 2;
+			for (; xMax > 0; xMax--) {
+				*pDest = (byte)color;
+				pDest += 2;
 			}
 		}
 
-		out += screenWidth;
+		pDestLine += screenWidth;
 	}
 }
 
-void Renderer::renderPolygonsGouraud(int vtop, int32 vsize) const {
-	uint8 *out = (uint8 *)_engine->_frontVideoBuffer.getBasePtr(0, vtop);
-	const int16 *ptr1 = &_polyTab[vtop];
-	const int16 *ptr2 = &_colorProgressionBuffer[vtop];
+void Renderer::svgaPolyGouraud(int16 vtop, int16 Ymax) const {
 	const int screenWidth = _engine->width();
-	const int screenHeight = _engine->height();
-	int32 renderLoop = vsize;
-	if (vtop < 0) {
-		out += screenWidth * ABS(vtop);
-		renderLoop -= ABS(vtop);
-	}
-	if (renderLoop > screenHeight) {
-		renderLoop = screenHeight;
-	}
-	for (int32 currentLine = 0; currentLine < renderLoop; ++currentLine) {
-		uint16 startColor = ptr2[0];
-		const uint16 stopColor = ptr2[screenHeight];
+	int16 xMin, xMax;
+	int16 y = vtop;
+	int16 start, end, step;
+	byte *pDestLine = (uint8 *)_engine->_frontVideoBuffer.getBasePtr(0, y);
+	byte *pDest;
+	int16 *pVerticG = &_tabVerticG[y];
+	int16 *pVerticD = &_tabVerticD[y];
+	int16 *pCoulG = &_tabCoulG[y];
+	int16 *pCoulD = &_tabCoulD[y];
 
-		int16 colorDiff = stopColor - startColor;
+	for (; y <= Ymax; y++) {
+		xMin = *pVerticG++;
+		xMax = *pVerticD++;
+		start = *pCoulG++;
+		end = *pCoulD++;
+		pDest = pDestLine + xMin;
 
-		const int16 stop = ptr1[screenHeight];
-		const int16 start = ptr1[0];
+		xMax -= xMin;
 
-		ptr1++;
-		uint8 *out2 = start + out;
-		int32 hsize = stop - start;
-
-		ptr2++;
-
-		if (hsize == 0) {
-			if (start >= 0 && start < screenWidth) {
-				*out2 = ((startColor + stopColor) / 2) / 256; // average of the 2 colors
+		if (xMax == 0) {
+			*pDest = (byte)((end + start) >> 9);
+		} else if (xMax <= 2) {
+			pDest[xMax--] = (byte)(end >> 8);
+			if (xMax) {
+				pDest[xMax--] = (byte)((end + start) >> 9);
 			}
-		} else if (hsize == 1) {
-			if (start >= 1 && start < screenWidth - 1) {
-				*(out2 + 1) = stopColor / 256;
-			}
+			*pDest = (byte)(start >> 8);
+		} else {
+			step = (end - start) / xMax;
 
-			if (start >= 0 && start < screenWidth) {
-				*out2 = startColor / 256;
+			for (; xMax >= 0; xMax--) {
+				*pDest++ = (byte)(start >> 8);
+				start += step;
 			}
-		} else if (hsize == 2) {
-			if (start >= 2 && start < screenWidth - 2) {
-				*(out2 + 2) = stopColor / 256;
-			}
-
-			if (start >= 1 && start < screenWidth - 1) {
-				*(out2 + 1) = ((startColor + stopColor) / 2) / 256; // average of the 2 colors
-			}
-
-			if (start >= 0 && start < screenWidth) {
-				*out2 = startColor / 256;
-			}
-		} else if (hsize > 0) {
-			int32 currentXPos = start;
-			colorDiff /= hsize;
-			hsize++;
-
-			if (hsize % 2) {
-				if (currentXPos >= 0 && currentXPos < screenWidth) {
-					*out2 = startColor / 256;
-				}
-				++out2;
-				++currentXPos;
-				startColor += colorDiff;
-			}
-			hsize /= 2;
-
-			do {
-				for (int i = 0; i < 2; ++i) {
-					if (currentXPos >= 0 && currentXPos < screenWidth) {
-						*out2 = startColor / 256;
-					}
-					++out2;
-					++currentXPos;
-					startColor += colorDiff;
-				}
-			} while (--hsize);
 		}
-		out += screenWidth;
+
+		pDestLine += screenWidth;
 	}
 }
 
 // used for the most of the heads of the characters and the horse body
-void Renderer::renderPolygonsDither(int vtop, int32 vsize) const {
-	uint8 *out = (uint8 *)_engine->_frontVideoBuffer.getBasePtr(0, vtop);
-	const int16 *ptr1 = &_polyTab[vtop];
-	const int16 *ptr2 = &_colorProgressionBuffer[vtop];
+void Renderer::svgaPolyDith(int16 vtop, int16 Ymax) const {
 	const int screenWidth = _engine->width();
-	const int screenHeight = _engine->height();
+	int16 xMin, xMax;
+	int16 y = vtop;
+	int16 start, end, step, delta, impair;
+	byte *pDestLine = (uint8 *)_engine->_frontVideoBuffer.getBasePtr(0, y);
+	byte *pDest;
+	int16 *pVerticG = &_tabVerticG[y];
+	int16 *pVerticD = &_tabVerticD[y];
+	int16 *pCoulG = &_tabCoulG[y];
+	int16 *pCoulD = &_tabCoulD[y];
 
-	int32 renderLoop = vsize;
-	if (vtop < 0) {
-		out += screenWidth * ABS(vtop);
-		renderLoop -= ABS(vtop);
-	}
-	if (renderLoop > screenHeight) {
-		renderLoop = screenHeight;
-	}
-	for (int32 currentLine = 0; currentLine < renderLoop; ++currentLine) {
-		int16 stop = ptr1[screenHeight];
-		int16 start = ptr1[0];
-		ptr1++;
-		int32 hsize = stop - start;
-		if (hsize < 0) {
-			out += screenWidth;
-			continue;
-		}
-		uint16 startColor = ptr2[0];
-		uint16 stopColor = ptr2[screenHeight];
-		int32 currentXPos = start;
+	for (; y <= Ymax; y++) {
+		xMin = *pVerticG++;
+		xMax = *pVerticD++;
+		start = *pCoulG++;
+		end = *pCoulD++;
+		pDest = pDestLine + xMin;
 
-		uint8 *out2 = start + out;
-		ptr2++;
+		xMax -= xMin;
+		delta = end - start;
 
-		if (hsize == 0) {
-			if (currentXPos >= 0 && currentXPos < screenWidth) {
-				*out2 = (uint8)(((startColor + stopColor) / 2) / 256); // average of the 2 colors
+		if (xMax == 0) {
+			// rcr ax,1
+			*pDest = (byte)(((int32)end + start) >> 9);
+		} else if (xMax <= 2) {
+			step = start;
+
+			if (xMax == 2) // if( !(xMax & 1) )
+			{
+				delta = (delta >> 1) | (delta & 0x8000); // sar ax,1
+				step &= 0xFF;
+				step = start + ROL8(step, 1);
+				*pDest++ = (byte)(step >> 8);
+				start += delta;
 			}
+
+			step = start + (step & 0xFF);
+			*pDest++ = (byte)(step >> 8);
+
+			start += delta;
+			step &= 0xFF;
+			step = start + ROL8(step, 1);
+			*pDest = (byte)(step >> 8);
 		} else {
-			int16 colorSize = stopColor - startColor;
-			if (hsize == 1) {
-				uint16 currentColor = startColor;
-				hsize++;
-				hsize /= 2;
+			delta /= xMax;
+			step = start;
+			impair = xMax & 1;
+			xMax = (xMax + 1) >> 1;
 
-				currentColor &= 0xFF;
-				currentColor += startColor;
-				if (currentXPos >= 0 && currentXPos < screenWidth) {
-					*out2 = currentColor / 256;
-				}
+			if (!impair) {
+				step &= 0xFF;
+				step = start + ROL8(step, xMax & 7);
+				*pDest++ = (byte)(step >> 8);
+				start += delta;
+			}
 
-				currentColor &= 0xFF;
-				startColor += colorSize;
-				currentColor = ((currentColor & (0xFF00)) | ((((currentColor & 0xFF) << (hsize & 0xFF))) & 0xFF));
-				currentColor += startColor;
-
-				currentXPos++;
-				if (currentXPos >= 0 && currentXPos < screenWidth) {
-					*(out2 + 1) = currentColor / 256;
-				}
-			} else if (hsize == 2) {
-				uint16 currentColor = startColor;
-				hsize++;
-				hsize /= 2;
-
-				currentColor &= 0xFF;
-				colorSize /= 2;
-				currentColor = ((currentColor & (0xFF00)) | ((((currentColor & 0xFF) << (hsize & 0xFF))) & 0xFF));
-				currentColor += startColor;
-				if (currentXPos >= 0 && currentXPos < screenWidth) {
-					*out2 = currentColor / 256;
-				}
-
-				out2++;
-				currentXPos++;
-				startColor += colorSize;
-
-				currentColor &= 0xFF;
-				currentColor += startColor;
-
-				if (currentXPos >= 0 && currentXPos < screenWidth) {
-					*out2 = currentColor / 256;
-				}
-
-				currentColor &= 0xFF;
-				startColor += colorSize;
-				currentColor = ((currentColor & (0xFF00)) | ((((currentColor & 0xFF) << (hsize & 0xFF))) & 0xFF));
-				currentColor += startColor;
-
-				currentXPos++;
-				if (currentXPos >= 0 && currentXPos < screenWidth) {
-					*(out2 + 1) = currentColor / 256;
-				}
-			} else {
-				uint16 currentColor = startColor;
-				colorSize /= hsize;
-				hsize++;
-
-				if (hsize % 2) {
-					hsize /= 2;
-					currentColor &= 0xFF;
-					currentColor = ((currentColor & (0xFF00)) | ((((currentColor & 0xFF) << (hsize & 0xFF))) & 0xFF));
-					currentColor += startColor;
-					if (currentXPos >= 0 && currentXPos < screenWidth) {
-						*out2 = currentColor / 256;
-					}
-					out2++;
-					currentXPos++;
-				} else {
-					hsize /= 2;
-				}
-
-				do {
-					currentColor &= 0xFF;
-					currentColor += startColor;
-					if (currentXPos >= 0 && currentXPos < screenWidth) {
-						*out2 = currentColor / 256;
-					}
-					currentXPos++;
-					currentColor &= 0xFF;
-					startColor += colorSize;
-					currentColor = ((currentColor & (0xFF00)) | ((((currentColor & 0xFF) << (hsize & 0xFF))) & 0xFF));
-					currentColor += startColor;
-					if (currentXPos >= 0 && currentXPos < screenWidth) {
-						*(out2 + 1) = currentColor / 256;
-					}
-					currentXPos++;
-					out2 += 2;
-					startColor += colorSize;
-				} while (--hsize);
+			for (; xMax > 0; xMax--) {
+				step &= 0xFF;
+				step += start;
+				*pDest++ = (byte)(step >> 8);
+				start += delta;
+				step &= 0xFF;
+				step = start + ROL8(step, xMax & 7);
+				*pDest++ = (byte)(step >> 8);
+				start += delta;
 			}
 		}
-		out += screenWidth;
+
+		pDestLine += screenWidth;
 	}
 }
 
-void Renderer::renderPolygonsMarble(int vtop, int32 vsize, uint16 color) const {
+void Renderer::svgaPolyMarbre(int16 vtop, int16 Ymax, uint16 color) const {
 	const int screenWidth = _engine->width();
-	const int screenHeight = _engine->height();
-
-	uint8 *out = (uint8 *)_engine->_frontVideoBuffer.getBasePtr(0, vtop);
-	int16 *ptr1 = &_polyTab[vtop];
-
 	int16 xMin, xMax;
 	int16 y = vtop;
-	uint8 *pDestLine = out;
-	uint8 *pDest;
-	int16 *pVerticG = ptr1;
-	int16 *pVerticD = &ptr1[screenHeight];
+	byte *pDestLine = (uint8 *)_engine->_frontVideoBuffer.getBasePtr(0, y);
+	byte *pDest;
+	int16 *pVerticG = &_tabVerticG[y];
+	int16 *pVerticD = &_tabVerticD[y];
 
+	// color contains 2 colors: 0xFF start, 0xFF00 end
 	uint16 start = (color & 0xFF) << 8;
 	uint16 end = color & 0xFF00;
 	uint16 delta = end - start + 1; // delta intensity
 	int32 step, dc;
 
-	for (; y <= vsize; y++) {
+	for (; y <= Ymax; y++) {
 		xMin = *pVerticG++;
 		xMax = *pVerticD++;
 		pDest = pDestLine + xMin;
@@ -1253,13 +1137,13 @@ void Renderer::renderPolygonsMarble(int vtop, int32 vsize, uint16 color) const {
 		dc = xMax - xMin;
 		if (dc == 0) {
 			// just one
-			*pDest++ = (uint8)(end >> 8);
+			*pDest++ = (byte)(end >> 8);
 		} else if (dc > 0) {
 			step = delta / (dc + 1);
 			color = start;
 
 			for (; xMin <= xMax; xMin++) {
-				*pDest++ = (uint8)(color >> 8);
+				*pDest++ = (byte)(color >> 8);
 				color += step;
 			}
 		}
@@ -1268,85 +1152,78 @@ void Renderer::renderPolygonsMarble(int vtop, int32 vsize, uint16 color) const {
 	}
 }
 
-void Renderer::renderPolygonsSimplified(int vtop, int32 vsize, uint16 color) const {
-	uint8 *out = (uint8 *)_engine->_frontVideoBuffer.getBasePtr(0, vtop);
-	const int16 *ptr1 = &_polyTab[vtop];
-	const int16 *ptr2 = &_colorProgressionBuffer[vtop];
+void Renderer::svgaPolyTriche(int16 vtop, int16 Ymax, uint16 color) const {
 	const int screenWidth = _engine->width();
-	const int screenHeight = _engine->height();
+	int16 xMin, xMax;
+	int16 y = vtop;
+	byte *pDestLine = (uint8 *)_engine->_frontVideoBuffer.getBasePtr(0, y);
+	byte *pDest;
+	int16 *pVerticG = &_tabVerticG[y];
+	int16 *pVerticD = &_tabVerticD[y];
+	int16 *pCoulG = &_tabCoulG[y];
 
-	int32 renderLoop = vsize;
-	if (vtop < 0) {
-		out += screenWidth * ABS(vtop);
-		renderLoop -= ABS(vtop);
-	}
-	if (renderLoop > screenHeight) {
-		renderLoop = screenHeight;
-	}
-	for (int32 currentLine = 0; currentLine < renderLoop; ++currentLine) {
-		int16 xMin = MAX<int16>(0, ptr1[0]);
-		const int16 xMax = MIN<int16>((int16)(screenWidth - 1), ptr1[screenHeight]);
-		uint8 *pDest = out + xMin;
+	for (; y <= Ymax; y++) {
+		xMin = *pVerticG++;
+		xMax = *pVerticD++;
+		pDest = pDestLine + xMin;
 
-		color = (*ptr2++) >> 8;
+		color = (*pCoulG++) >> 8;
 		for (; xMin <= xMax; xMin++) {
-			*pDest++ = color;
+			*pDest++ = (byte)color;
 		}
-		++ptr1;
 
-		out += screenWidth;
+		pDestLine += screenWidth;
 	}
 }
 
-void Renderer::renderPolygons(const CmdRenderPolygon &polygon, Vertex *vertices, int vtop, int vbottom) {
-	if (computePoly(polygon.renderType, vertices, polygon.numVertices)) {
-		const int32 vsize = vbottom - vtop + 1;
-		fillVertices(vtop, vsize, polygon.renderType, polygon.colorIndex);
+void Renderer::renderPolygons(const CmdRenderPolygon &polygon, ComputedVertex *vertices, int vtop, int vbottom) {
+	if (computePoly(polygon.renderType, vertices, polygon.numVertices, vtop, vbottom)) {
+		fillVertices(vtop, vbottom, polygon.renderType, polygon.colorIndex);
 	}
 }
 
-void Renderer::fillVertices(int vtop, int32 vsize, uint8 renderType, uint16 color) {
+void Renderer::fillVertices(int16 vtop, int16 vbottom, uint8 renderType, uint16 color) {
 	switch (renderType) {
 	case POLYGONTYPE_FLAT:
-		renderPolygonsFlat(vtop, vsize, color);
+		svgaPolyTriste(vtop, vbottom, color);
 		break;
 	case POLYGONTYPE_TELE:
 		if (_engine->_cfgfile.PolygonDetails == 0) {
-			renderPolygonsFlat(vtop, vsize, color);
+			svgaPolyTriste(vtop, vbottom, color);
 		} else {
-			renderPolygonsTele(vtop, vsize, color);
+			svgaPolyTele(vtop, vbottom, color);
 		}
 		break;
 	case POLYGONTYPE_COPPER:
-		renderPolygonsCopper(vtop, vsize, color);
+		svgaPolyCopper(vtop, vbottom, color);
 		break;
 	case POLYGONTYPE_BOPPER:
-		renderPolygonsBopper(vtop, vsize, color);
+		svgaPolyBopper(vtop, vbottom, color);
 		break;
 	case POLYGONTYPE_TRANS:
-		renderPolygonsTrans(vtop, vsize, color);
+		svgaPolyTrans(vtop, vbottom, color);
 		break;
 	case POLYGONTYPE_TRAME: // raster
-		renderPolygonsTrame(vtop, vsize, color);
+		svgaPolyTrame(vtop, vbottom, color);
 		break;
 	case POLYGONTYPE_GOURAUD:
 		if (_engine->_cfgfile.PolygonDetails == 0) {
-			renderPolygonsSimplified(vtop, vsize, color);
+			svgaPolyTriche(vtop, vbottom, color);
 		} else {
-			renderPolygonsGouraud(vtop, vsize);
+			svgaPolyGouraud(vtop, vbottom);
 		}
 		break;
 	case POLYGONTYPE_DITHER:
 		if (_engine->_cfgfile.PolygonDetails == 0) {
-			renderPolygonsSimplified(vtop, vsize, color);
+			svgaPolyTriche(vtop, vbottom, color);
 		} else if (_engine->_cfgfile.PolygonDetails == 1) {
-			renderPolygonsGouraud(vtop, vsize);
+			svgaPolyGouraud(vtop, vbottom);
 		} else {
-			renderPolygonsDither(vtop, vsize);
+			svgaPolyDith(vtop, vbottom);
 		}
 		break;
 	case POLYGONTYPE_MARBLE:
-		renderPolygonsMarble(vtop, vsize, color);
+		svgaPolyMarbre(vtop, vbottom, color);
 		break;
 	default:
 		warning("RENDER WARNING: Unsupported render type %d", renderType);
@@ -1354,7 +1231,7 @@ void Renderer::fillVertices(int vtop, int32 vsize, uint8 renderType, uint16 colo
 	}
 }
 
-bool Renderer::prepareCircle(int32 x, int32 y, int32 radius) {
+bool Renderer::computeSphere(int32 x, int32 y, int32 radius, int &vtop, int &vbottom) {
 	if (radius <= 0) {
 		return false;
 	}
@@ -1385,9 +1262,6 @@ bool Renderer::prepareCircle(int32 x, int32 y, int32 radius) {
 		int32 r = 0;
 		int32 acc = -radius;
 
-		int16 *start = _polyTab;
-		int16 *end = &_polyTab[_engine->height()];
-
 		while (r <= radius) {
 			int32 x1 = x - radius;
 			if (x1 < cleft) {
@@ -1401,14 +1275,14 @@ bool Renderer::prepareCircle(int32 x, int32 y, int32 radius) {
 
 			int32 ny = y - r;
 			if ((ny >= ctop) && (ny <= cbottom)) {
-				start[ny] = (int16)x1;
-				end[ny] = (int16)x2;
+				_tabVerticG[ny] = (int16)x1;
+				_tabVerticD[ny] = (int16)x2;
 			}
 
 			ny = y + r;
 			if ((ny >= ctop) && (ny <= cbottom)) {
-				start[ny] = (int16)x1;
-				end[ny] = (int16)x2;
+				_tabVerticG[ny] = (int16)x1;
+				_tabVerticD[ny] = (int16)x2;
 			}
 
 			if (acc < 0) {
@@ -1426,14 +1300,14 @@ bool Renderer::prepareCircle(int32 x, int32 y, int32 radius) {
 
 					ny = y - radius;
 					if ((ny >= ctop) && (ny <= cbottom)) {
-						start[ny] = (int16)x1;
-						end[ny] = (int16)x2;
+						_tabVerticG[ny] = (int16)x1;
+						_tabVerticD[ny] = (int16)x2;
 					}
 
 					ny = y + radius;
 					if ((ny >= ctop) && (ny <= cbottom)) {
-						start[ny] = (int16)x1;
-						end[ny] = (int16)x2;
+						_tabVerticG[ny] = (int16)x1;
+						_tabVerticD[ny] = (int16)x2;
 					}
 
 					--radius;
@@ -1444,6 +1318,9 @@ bool Renderer::prepareCircle(int32 x, int32 y, int32 radius) {
 			++r;
 		}
 
+		vtop = top;
+		vbottom = bottom;
+
 		return true;
 	}
 
@@ -1452,7 +1329,7 @@ bool Renderer::prepareCircle(int32 x, int32 y, int32 radius) {
 
 uint8 *Renderer::prepareSpheres(const Common::Array<BodySphere> &spheres, int32 &numOfPrimitives, RenderCommand **renderCmds, uint8 *renderBufferPtr, ModelData *modelData) {
 	for (const BodySphere &sphere : spheres) {
-		CmdRenderSphere *cmd = (CmdRenderSphere *)renderBufferPtr;
+		CmdRenderSphere *cmd = (CmdRenderSphere *)(void*)renderBufferPtr;
 		cmd->color = sphere.color;
 		cmd->polyRenderType = sphere.fillType;
 		cmd->radius = sphere.radius;
@@ -1474,7 +1351,7 @@ uint8 *Renderer::prepareSpheres(const Common::Array<BodySphere> &spheres, int32 
 
 uint8 *Renderer::prepareLines(const Common::Array<BodyLine> &lines, int32 &numOfPrimitives, RenderCommand **renderCmds, uint8 *renderBufferPtr, ModelData *modelData) {
 	for (const BodyLine &line : lines) {
-		CmdRenderLine *cmd = (CmdRenderLine *)renderBufferPtr;
+		CmdRenderLine *cmd = (CmdRenderLine *)(void*)renderBufferPtr;
 		cmd->colorIndex = line.color;
 		const int32 point1Index = line.vertex1;
 		const int32 point2Index = line.vertex2;
@@ -1494,77 +1371,78 @@ uint8 *Renderer::prepareLines(const Common::Array<BodyLine> &lines, int32 &numOf
 }
 
 uint8 *Renderer::preparePolygons(const Common::Array<BodyPolygon> &polygons, int32 &numOfPrimitives, RenderCommand **renderCmds, uint8 *renderBufferPtr, ModelData *modelData) {
-	const int16 maxHeight = _engine->height() - 1;
-	const int16 maxWidth = _engine->width() - 1;
-
 	for (const BodyPolygon &polygon : polygons) {
 		const uint8 materialType = polygon.materialType;
 		const uint8 numVertices = polygon.indices.size();
 		assert(numVertices <= 16);
-		const int16 colorIndex = polygon.color;
 
-		int16 bestDepth = -32000;
+		int16 zMax = -32000;
 
-		CmdRenderPolygon *destinationPolygon = (CmdRenderPolygon *)renderBufferPtr;
+		CmdRenderPolygon *destinationPolygon = (CmdRenderPolygon *)(void*)renderBufferPtr;
 		destinationPolygon->numVertices = numVertices;
 		destinationPolygon->top = SCENE_SIZE_MAX;
 		destinationPolygon->bottom = SCENE_SIZE_MIN;
 
 		renderBufferPtr += sizeof(CmdRenderPolygon);
 
-		Vertex *const vertices = (Vertex *)renderBufferPtr;
-		renderBufferPtr += destinationPolygon->numVertices * sizeof(Vertex);
+		ComputedVertex *const vertices = (ComputedVertex *)(void*)renderBufferPtr;
+		renderBufferPtr += destinationPolygon->numVertices * sizeof(ComputedVertex);
 
-		Vertex *vertex = vertices;
+		ComputedVertex *vertex = vertices;
 
 		if (materialType >= MAT_GOURAUD) {
 			destinationPolygon->renderType = polygon.materialType - (MAT_GOURAUD - POLYGONTYPE_GOURAUD);
-			destinationPolygon->colorIndex = polygon.color;
+			destinationPolygon->colorIndex = polygon.intensity;
 
 			for (int16 idx = 0; idx < numVertices; ++idx) {
-				const int16 shadeEntry = polygon.intensities[idx];
-				const int16 shadeValue = colorIndex + modelData->shadeTable[shadeEntry];
-				const int16 vertexIndex = polygon.indices[idx];
+				const uint16 shadeEntry = polygon.normals[idx];
+				const int16 shadeValue = polygon.intensity + modelData->normalTable[shadeEntry];
+				const uint16 vertexIndex = polygon.indices[idx];
 				const I16Vec3 *point = &modelData->flattenPoints[vertexIndex];
 
-				vertex->colorIndex = shadeValue;
-				vertex->x = clamp(point->x, 0, maxWidth);
-				vertex->y = clamp(point->y, 0, maxHeight);
-				destinationPolygon->top = MIN<int>(destinationPolygon->top, vertex->y);
-				destinationPolygon->bottom = MAX<int>(destinationPolygon->bottom, vertex->y);
-				bestDepth = MAX(bestDepth, point->z);
+				vertex->intensity = shadeValue;
+				vertex->x = point->x;
+				vertex->y = point->y;
+				destinationPolygon->top = MIN<int16>(destinationPolygon->top, vertex->y);
+				destinationPolygon->bottom = MAX<int16>(destinationPolygon->bottom, vertex->y);
+				zMax = MAX(zMax, point->z);
 				++vertex;
 			}
 		} else {
 			if (materialType >= MAT_FLAT) {
 				// only 1 shade value is used
 				destinationPolygon->renderType = materialType - MAT_FLAT;
-				const int16 shadeEntry = polygon.intensities[0];
-				const int16 shadeValue = colorIndex + modelData->shadeTable[shadeEntry];
+				const uint16 normalIndex = polygon.normals[0];
+				const int16 shadeValue = polygon.intensity + modelData->normalTable[normalIndex];
 				destinationPolygon->colorIndex = shadeValue;
 			} else {
 				// no shade is used
 				destinationPolygon->renderType = materialType;
-				destinationPolygon->colorIndex = colorIndex;
+				destinationPolygon->colorIndex = polygon.intensity;
 			}
 
 			for (int16 idx = 0; idx < numVertices; ++idx) {
-				const int16 vertexIndex = polygon.indices[idx];
+				const uint16 vertexIndex = polygon.indices[idx];
 				const I16Vec3 *point = &modelData->flattenPoints[vertexIndex];
 
-				vertex->colorIndex = destinationPolygon->colorIndex;
-				vertex->x = clamp(point->x, 0, maxWidth);
-				vertex->y = clamp(point->y, 0, maxHeight);
-				destinationPolygon->top = MIN<int>(destinationPolygon->top, vertex->y);
-				destinationPolygon->bottom = MAX<int>(destinationPolygon->bottom, vertex->y);
-				bestDepth = MAX(bestDepth, point->z);
+				vertex->intensity = destinationPolygon->colorIndex;
+				vertex->x = point->x;
+				vertex->y = point->y;
+				destinationPolygon->top = MIN<int16>(destinationPolygon->top, vertex->y);
+				destinationPolygon->bottom = MAX<int16>(destinationPolygon->bottom, vertex->y);
+				zMax = MAX<int16>(zMax, point->z);
 				++vertex;
 			}
 		}
 
+		if (!isPolygonVisible(vertices)) {
+			renderBufferPtr = (uint8 *)destinationPolygon;
+			continue;
+		}
+
 		numOfPrimitives++;
 
-		(*renderCmds)->depth = bestDepth;
+		(*renderCmds)->depth = zMax;
 		(*renderCmds)->renderType = RENDERTYPE_DRAWPOLYGON;
 		(*renderCmds)->dataPtr = (uint8 *)destinationPolygon;
 		(*renderCmds)++;
@@ -1578,18 +1456,19 @@ const Renderer::RenderCommand *Renderer::depthSortRenderCommands(int32 numOfPrim
 	return _renderCmds;
 }
 
-bool Renderer::renderModelElements(int32 numOfPrimitives, const BodyData &bodyData, RenderCommand **renderCmds, ModelData *modelData, Common::Rect &modelRect) {
+bool Renderer::renderObjectIso(const BodyData &bodyData, RenderCommand **renderCmds, ModelData *modelData, Common::Rect &modelRect) {
+	int32 numOfPrimitives = 0;
 	uint8 *renderBufferPtr = _renderCoordinatesBuffer;
 	renderBufferPtr = preparePolygons(bodyData.getPolygons(), numOfPrimitives, renderCmds, renderBufferPtr, modelData);
 	renderBufferPtr = prepareLines(bodyData.getLines(), numOfPrimitives, renderCmds, renderBufferPtr, modelData);
-	renderBufferPtr = prepareSpheres(bodyData.getSpheres(), numOfPrimitives, renderCmds, renderBufferPtr, modelData);
+	prepareSpheres(bodyData.getSpheres(), numOfPrimitives, renderCmds, renderBufferPtr, modelData);
 
 	if (numOfPrimitives == 0) {
 		return false;
 	}
 	const RenderCommand *cmds = depthSortRenderCommands(numOfPrimitives);
 
-	int16 primitiveCounter = numOfPrimitives;
+	int32 primitiveCounter = numOfPrimitives;
 
 	do {
 		int16 type = cmds->renderType;
@@ -1597,7 +1476,7 @@ bool Renderer::renderModelElements(int32 numOfPrimitives, const BodyData &bodyDa
 
 		switch (type) {
 		case RENDERTYPE_DRAWLINE: {
-			const CmdRenderLine *lineCoords = (const CmdRenderLine *)pointer;
+			const CmdRenderLine *lineCoords = (const CmdRenderLine *)(const void*)pointer;
 			const int32 x1 = lineCoords->x1;
 			const int32 y1 = lineCoords->y1;
 			const int32 x2 = lineCoords->x2;
@@ -1606,27 +1485,25 @@ bool Renderer::renderModelElements(int32 numOfPrimitives, const BodyData &bodyDa
 			break;
 		}
 		case RENDERTYPE_DRAWPOLYGON: {
-			const CmdRenderPolygon *header = (const CmdRenderPolygon *)pointer;
-			Vertex *vertices = (Vertex *)(pointer + sizeof(CmdRenderPolygon));
+			const CmdRenderPolygon *header = (const CmdRenderPolygon *)(const void*)pointer;
+			ComputedVertex *vertices = (ComputedVertex *)(void*)(pointer + sizeof(CmdRenderPolygon));
 			renderPolygons(*header, vertices, header->top, header->bottom);
 			break;
 		}
 		case RENDERTYPE_DRAWSPHERE: {
-			CmdRenderSphere *sphere = (CmdRenderSphere *)pointer;
+			const CmdRenderSphere *sphere = (const CmdRenderSphere *)(const void*)pointer;
 			int32 radius = sphere->radius;
 
-			if (_isUsingOrthoProjection) {
+			if (_isUsingIsoProjection) {
 				// * sqrt(sx+sy) / 512 (isometric scale)
 				radius = (radius * 34) / ISO_SCALE;
 			} else {
-				int32 delta = _cameraDepthOffset + sphere->z;
+				int32 delta = _kFactor + sphere->z;
 				if (delta == 0) {
 					break;
 				}
-				radius = (sphere->radius * _cameraScaleX) / delta;
+				radius = (sphere->radius * _lFactorX) / delta;
 			}
-
-			radius += 3;
 
 			if (sphere->x + radius > modelRect.right) {
 				modelRect.right = sphere->x + radius;
@@ -1644,11 +1521,10 @@ bool Renderer::renderModelElements(int32 numOfPrimitives, const BodyData &bodyDa
 				modelRect.top = sphere->y - radius;
 			}
 
-			radius -= 3;
-
-			if (prepareCircle(sphere->x, sphere->y, radius)) {
-				const int32 vsize = 2 * radius;
-				fillVertices(sphere->y - radius, vsize, sphere->polyRenderType, sphere->color);
+			int vtop = -1;
+			int vbottom = -1;
+			if (computeSphere(sphere->x, sphere->y, radius, vtop, vbottom)) {
+				fillVertices(vtop, vbottom, sphere->polyRenderType, sphere->color);
 			}
 			break;
 		}
@@ -1661,7 +1537,7 @@ bool Renderer::renderModelElements(int32 numOfPrimitives, const BodyData &bodyDa
 	return true;
 }
 
-bool Renderer::renderAnimatedModel(ModelData *modelData, const BodyData &bodyData, RenderCommand *renderCmds, const IVec3 &angleVec, const IVec3 &renderPos, Common::Rect &modelRect) {
+void Renderer::animModel(ModelData *modelData, const BodyData &bodyData, RenderCommand *renderCmds, const IVec3 &angleVec, const IVec3 &renderPos, Common::Rect &modelRect) {
 	const int32 numVertices = bodyData.getNumVertices();
 	const int32 numBones = bodyData.getNumBones();
 
@@ -1699,15 +1575,15 @@ bool Renderer::renderAnimatedModel(ModelData *modelData, const BodyData &bodyDat
 	const I16Vec3 *pointPtr = &modelData->computedPoints[0];
 	I16Vec3 *pointPtrDest = &modelData->flattenPoints[0];
 
-	if (_isUsingOrthoProjection) { // use standard projection
+	if (_isUsingIsoProjection) { // use standard projection
 		do {
 			const int32 coX = pointPtr->x + renderPos.x;
 			const int32 coY = pointPtr->y + renderPos.y;
 			const int32 coZ = -(pointPtr->z + renderPos.z);
 
 			// TODO: use projectPositionOnScreen()
-			pointPtrDest->x = (coX + coZ) * 24 / ISO_SCALE + _orthoProjPos.x;
-			pointPtrDest->y = (((coX - coZ) * 12) - coY * 30) / ISO_SCALE + _orthoProjPos.y;
+			pointPtrDest->x = (coX + coZ) * 24 / ISO_SCALE + _projectionCenter.x;
+			pointPtrDest->y = (((coX - coZ) * 12) - coY * 30) / ISO_SCALE + _projectionCenter.y;
 			pointPtrDest->z = coZ - coX - coY;
 
 			if (pointPtrDest->x < modelRect.left) {
@@ -1733,7 +1609,7 @@ bool Renderer::renderAnimatedModel(ModelData *modelData, const BodyData &bodyDat
 			int32 coY = pointPtr->y + renderPos.y;
 			int32 coZ = -(pointPtr->z + renderPos.z);
 
-			coZ += _cameraDepthOffset;
+			coZ += _kFactor;
 
 			if (coZ <= 0) {
 				coZ = 0x7FFFFFFF;
@@ -1741,7 +1617,7 @@ bool Renderer::renderAnimatedModel(ModelData *modelData, const BodyData &bodyDat
 
 			// X projection
 			{
-				coX = _orthoProjPos.x + ((coX * _cameraScaleX) / coZ);
+				coX = _projectionCenter.x + ((coX * _lFactorX) / coZ);
 
 				if (coX > 0xFFFF) {
 					coX = 0x7FFF;
@@ -1760,7 +1636,7 @@ bool Renderer::renderAnimatedModel(ModelData *modelData, const BodyData &bodyDat
 
 			// Y projection
 			{
-				coY = _orthoProjPos.y + ((-coY * _cameraScaleY) / coZ);
+				coY = _projectionCenter.y + ((-coY * _lFactorY) / coZ);
 
 				if (coY > 0xFFFF) {
 					coY = 0x7FFF;
@@ -1791,10 +1667,10 @@ bool Renderer::renderAnimatedModel(ModelData *modelData, const BodyData &bodyDat
 		} while (--numOfPrimitives);
 	}
 
-	int32 numOfShades = bodyData.getShades().size();
+	int32 numNormals = bodyData.getNormals().size();
 
-	if (numOfShades) { // process normal data
-		uint16 *currentShadeDestination = (uint16 *)modelData->shadeTable;
+	if (numNormals) { // process normal data
+		uint16 *currentShadeDestination = (uint16 *)modelData->normalTable;
 		IMatrix3x3 *lightMatrix = &_matricesTable[0];
 
 		numOfPrimitives = numBones;
@@ -1802,48 +1678,42 @@ bool Renderer::renderAnimatedModel(ModelData *modelData, const BodyData &bodyDat
 		int shadeIndex = 0;
 		int boneIdx = 0;
 		do { // for each element
-			numOfShades = bodyData.getBone(boneIdx).numOfShades;
+			numNormals = bodyData.getBone(boneIdx).numNormals;
 
-			if (numOfShades) {
-				int32 numShades = numOfShades;
+			if (numNormals) {
+				const IMatrix3x3 matrix = *lightMatrix * _normalLight;
 
-				_shadeMatrix = *lightMatrix * _lightNorm;
+				for (int32 i = 0; i < numNormals; ++i) { // for each normal
+					const BodyNormal &normalPtr = bodyData.getNormal(shadeIndex);
 
-				do { // for each normal
-					const BodyShade &shadePtr = bodyData.getShade(shadeIndex);
+					const int32 x = (int32)normalPtr.x;
+					const int32 y = (int32)normalPtr.y;
+					const int32 z = (int32)normalPtr.z;
 
-					const int32 col1 = (int32)shadePtr.col1;
-					const int32 col2 = (int32)shadePtr.col2;
-					const int32 col3 = (int32)shadePtr.col3;
+					int32 intensity = 0;
+					intensity += matrix.row1.x * x + matrix.row1.y * y + matrix.row1.z * z;
+					intensity += matrix.row2.x * x + matrix.row2.y * y + matrix.row2.z * z;
+					intensity += matrix.row3.x * x + matrix.row3.y * y + matrix.row3.z * z;
 
-					int32 color = 0;
-					color += _shadeMatrix.row1.x * col1 + _shadeMatrix.row1.y * col2 + _shadeMatrix.row1.z * col3;
-					color += _shadeMatrix.row2.x * col1 + _shadeMatrix.row2.y * col2 + _shadeMatrix.row2.z * col3;
-					color += _shadeMatrix.row3.x * col1 + _shadeMatrix.row3.y * col2 + _shadeMatrix.row3.z * col3;
-
-					int32 shade = 0;
-
-					if (color > 0) {
-						color >>= 14;
-						color /= shadePtr.unk4;
-						shade = (uint16)color;
+					if (intensity > 0) {
+						intensity >>= 14;
+						intensity /= normalPtr.prenormalizedRange;
+					} else {
+						intensity = 0;
 					}
 
-					*currentShadeDestination = shade;
-					currentShadeDestination++;
+					*currentShadeDestination++ = (uint16)intensity;
 					++shadeIndex;
-				} while (--numShades);
+				};
 			}
 
 			++boneIdx;
 			++lightMatrix;
 		} while (--numOfPrimitives);
 	}
-
-	return renderModelElements(numOfPrimitives, bodyData, &renderCmds, modelData, modelRect);
 }
 
-bool Renderer::renderIsoModel(int32 x, int32 y, int32 z, int32 angleX, int32 angleY, int32 angleZ, const BodyData &bodyData, Common::Rect &modelRect) {
+bool Renderer::affObjetIso(int32 x, int32 y, int32 z, int32 angleX, int32 angleY, int32 angleZ, const BodyData &bodyData, Common::Rect &modelRect) {
 	IVec3 renderAngle;
 	renderAngle.x = angleX;
 	renderAngle.y = angleY;
@@ -1856,12 +1726,12 @@ bool Renderer::renderIsoModel(int32 x, int32 y, int32 z, int32 angleX, int32 ang
 	modelRect.bottom = SCENE_SIZE_MIN;
 
 	IVec3 renderPos;
-	if (_isUsingOrthoProjection) {
+	if (!_isUsingIsoProjection) {
+		renderPos = longWorldRot(x, y, z) - _cameraRot;
+	} else {
 		renderPos.x = x;
 		renderPos.y = y;
 		renderPos.z = z;
-	} else {
-		renderPos = getBaseRotationPosition(x, y, z) - _baseRotPos;
 	}
 
 	if (!bodyData.isAnimated()) {
@@ -1875,7 +1745,9 @@ bool Renderer::renderIsoModel(int32 x, int32 y, int32 z, int32 angleX, int32 ang
 #endif
 	}
 	// restart at the beginning of the renderTable
-	if (!renderAnimatedModel(&_modelData, bodyData, _renderCmds, renderAngle, renderPos, modelRect)) {
+	RenderCommand *renderCmds = _renderCmds;
+	animModel(&_modelData, bodyData, renderCmds, renderAngle, renderPos, modelRect);
+	if (!renderObjectIso(bodyData, &renderCmds, &_modelData, modelRect)) {
 		modelRect.right = -1;
 		modelRect.bottom = -1;
 		modelRect.left = -1;
@@ -1893,161 +1765,162 @@ void Renderer::renderBehaviourModel(const Common::Rect &rect, int32 y, int32 ang
 	const int32 ypos = (boxBottom + boxTop) / 2;
 	const int32 xpos = (boxRight + boxLeft) / 2;
 
-	setOrthoProjection(xpos, ypos, 0);
+	setIsoProjection(xpos, ypos, 0);
 	_engine->_interface->setClip(rect);
 
 	Common::Rect dummy;
 	if (angle == -1) {
 		const int16 newAngle = move.getRealAngle(_engine->_lbaTime);
 		if (move.numOfStep == 0) {
-			_engine->_movements->setActorAngleSafe(newAngle, newAngle - ANGLE_90, ANGLE_17, &move);
+			_engine->_movements->initRealAngle(newAngle, newAngle - LBAAngles::ANGLE_90, LBAAngles::ANGLE_17, &move);
 		}
-		renderIsoModel(0, y, 0, ANGLE_0, newAngle, ANGLE_0, bodyData, dummy);
+		affObjetIso(0, y, 0, LBAAngles::ANGLE_0, newAngle, LBAAngles::ANGLE_0, bodyData, dummy);
 	} else {
-		renderIsoModel(0, y, 0, ANGLE_0, angle, ANGLE_0, bodyData, dummy);
+		affObjetIso(0, y, 0, LBAAngles::ANGLE_0, angle, LBAAngles::ANGLE_0, bodyData, dummy);
 	}
-	_engine->_interface->resetClip();
+	_engine->_interface->unsetClip();
 }
 
-void Renderer::renderInventoryItem(int32 x, int32 y, const BodyData &bodyData, int32 angle, int32 param) {
-	setCameraPosition(x, y, 128, 200, 200);
-	setCameraAngle(0, 0, 0, 60, 0, 0, param);
+void Renderer::draw3dObject(int32 x, int32 y, const BodyData &bodyData, int32 angle, int32 cameraZoom) {
+	setProjection(x, y, 128, 200, 200);
+	setFollowCamera(0, 0, 0, 60, 0, 0, cameraZoom);
 
 	Common::Rect dummy;
-	renderIsoModel(0, 0, 0, ANGLE_0, angle, ANGLE_0, bodyData, dummy);
+	affObjetIso(0, 0, 0, LBAAngles::ANGLE_0, angle, LBAAngles::ANGLE_0, bodyData, dummy);
 }
 
-void Renderer::computeHolomapPolygon(int32 top, int32 x1, int32 bottom, int32 x2, int16 *polygonTabPtr) {
-	int32 minY = bottom;
-	int32 minX = x1;
-	if (top < bottom) {
-		minY = top;
-		top = bottom;
-		minX = x2;
-		x2 = x1;
+void Renderer::fillHolomapTriangle(int16 *pDest, int32 x0, int32 y0, int32 x1, int32 y1) {
+	uint32 dx, step, reminder;
+	if (y0 > y1) {
+		SWAP(x0, x1);
+		SWAP(y0, y1);
 	}
-	const uint32 deltaY = top - minY;
-	int16 *currentPolygonTabEntry = &polygonTabPtr[minY];
-	if (minX < x2) {
-		const uint32 deltaX = (x2 - minX) * 0x10000;
-		const uint32 deltaRatio = deltaX / deltaY;
-		uint32 iVar01 = (deltaRatio % deltaY >> 1) + 0x7fffU;
-		for (uint32 y = 0; y <= deltaY; ++y) {
-			if (currentPolygonTabEntry < _polyTab || currentPolygonTabEntry >= _polyTab + _polyTabSize) {
-				currentPolygonTabEntry++;
-				continue;
+
+	y1 -= y0;
+	pDest += y0;
+
+	if (x0 <= x1) {
+		dx = (x1 - x0) << 16;
+
+		step = dx / y1;
+		reminder = ((dx % y1) >> 1) + 0x7FFF;
+
+		x1 = step >> 16;
+		step &= 0xFFFF;
+
+		for (; y1 >= 0; --y1) {
+			*pDest++ = (int16)x0;
+			x0 += x1;
+			if (reminder & 0xFFFF0000) {
+				x0 += reminder >> 16;
+				reminder &= 0xFFFF;
 			}
-			*currentPolygonTabEntry++ = (int16)x2;
-			x2 -= (deltaRatio >> 0x10);
-			if ((iVar01 & 0xffff0000U) != 0) {
-				x2 += (iVar01 >> 0x10);
-				iVar01 = iVar01 & 0xffffU;
-			}
-			iVar01 -= (deltaRatio & 0xffffU);
+			reminder += step;
 		}
 	} else {
-		const uint32 deltaX = (minX - x2) * 0x10000;
-		const uint32 deltaRatio = deltaX / deltaY;
-		uint32 iVar01 = (deltaX % deltaY >> 1) + 0x7fffU;
-		for (uint32 y = 0; y <= deltaY; ++y) {
-			if (currentPolygonTabEntry < _polyTab || currentPolygonTabEntry >= _polyTab + _polyTabSize) {
-				currentPolygonTabEntry++;
-				continue;
+		dx = (x0 - x1) << 16;
+
+		step = dx / y1;
+		reminder = ((dx % y1) >> 1) + 0x7FFF;
+
+		x1 = step >> 16;
+		step &= 0xFFFF;
+
+		for (; y1 >= 0; --y1) {
+			*pDest++ = (int16)x0;
+			x0 -= x1;
+			if (reminder & 0xFFFF0000) {
+				x0 += reminder >> 16;
+				reminder &= 0xFFFF;
 			}
-			*currentPolygonTabEntry++ = (int16)x2;
-			x2 += (deltaRatio >> 0x10);
-			if ((iVar01 & 0xffff0000U) != 0) {
-				x2 += (iVar01 >> 0x10);
-				iVar01 = iVar01 & 0xffffU;
-			}
-			iVar01 += (deltaRatio & 0xffffU);
+			reminder -= step;
 		}
 	}
 }
 
-void Renderer::fillHolomapPolygons(const Vertex &vertex1, const Vertex &vertex2, const Vertex &texCoord1, const Vertex &texCoord2, int32 &top, int32 &bottom) {
-	const int32 yBottom = vertex1.y;
-	const int32 yTop = vertex2.y;
-	if (yBottom == yTop) {
+void Renderer::fillHolomapTriangles(const ComputedVertex &vertex0, const ComputedVertex &vertex1, const ComputedVertex &texCoord0, const ComputedVertex &texCoord1, int32 &lymin, int32 &lymax) {
+	const int32 y0 = vertex0.y;
+	const int32 y1 = vertex1.y;
+
+	if (y0 < y1) {
+		if (y0 < lymin) {
+			lymin = y0;
+		}
+		if (y1 > lymax) {
+			lymax = y1;
+		}
+		fillHolomapTriangle(_tabVerticG, vertex0.x, y0, vertex1.x, y1);
+		fillHolomapTriangle(_tabx0, (int32)(uint16)texCoord0.x, y0, (int32)(uint16)texCoord1.x, y1);
+		fillHolomapTriangle(_taby0, (int32)(uint16)texCoord0.y, y0, (int32)(uint16)texCoord1.y, y1);
+	} else if (y0 > y1) {
+		if (y0 > lymax) {
+			lymax = y0;
+		}
+		if (y1 < lymin) {
+			lymin = y1;
+		}
+		fillHolomapTriangle(_tabVerticD, vertex0.x, y0, vertex1.x, y1);
+		fillHolomapTriangle(_tabx1, (int32)(uint16)texCoord0.x, y0, (int32)(uint16)texCoord1.x, y1);
+		fillHolomapTriangle(_taby1, (int32)(uint16)texCoord0.y, y0, (int32)(uint16)texCoord1.y, y1);
+	}
+}
+
+void Renderer::asmTexturedTriangleNoClip(const ComputedVertex vertexCoordinates[3], const ComputedVertex textureCoordinates[3], const uint8 *holomapImage, uint32 holomapImageSize) {
+	int32 lymin = SCENE_SIZE_MAX;
+	int32 lymax = SCENE_SIZE_MIN;
+	fillHolomapTriangles(vertexCoordinates[0], vertexCoordinates[1], textureCoordinates[0], textureCoordinates[1], lymin, lymax);
+	fillHolomapTriangles(vertexCoordinates[1], vertexCoordinates[2], textureCoordinates[1], textureCoordinates[2], lymin, lymax);
+	fillHolomapTriangles(vertexCoordinates[2], vertexCoordinates[0], textureCoordinates[2], textureCoordinates[0], lymin, lymax);
+	fillTextPolyNoClip(lymin, lymax, holomapImage, holomapImageSize);
+}
+
+void Renderer::fillTextPolyNoClip(int32 yMin, int32 yMax, const uint8 *holomapImage, uint32 holomapImageSize) {
+	if (yMin < 0 || yMin >= _engine->_frontVideoBuffer.h) {
 		return;
 	}
+	const int screenWidth = _engine->width();
+	uint8 *pDestLine = (uint8 *)_engine->_frontVideoBuffer.getBasePtr(0, yMin);
 
-	int16 *polygonTabPtr;
-	if (yBottom < yTop) {
-		if (yBottom < top) {
-			top = yBottom;
-		}
-		if (bottom < yTop) {
-			bottom = yTop;
-		}
-		computeHolomapPolygon(yTop, vertex2.x, yBottom, vertex1.x, _holomap_polytab_1_1);
-		computeHolomapPolygon(yTop, (uint32)(uint16)texCoord2.x, yBottom, (uint32)(uint16)texCoord1.x, _holomap_polytab_1_2);
-		polygonTabPtr = _holomap_polytab_1_3;
-	} else {
-		if (bottom < yBottom) {
-			bottom = yBottom;
-		}
-		if (yTop < top) {
-			top = yTop;
-		}
-		computeHolomapPolygon(yTop, vertex2.x, yBottom, vertex1.x, _holomap_polytab_2_1);
-		computeHolomapPolygon(yTop, (uint32)(uint16)texCoord2.x, yBottom, (uint32)(uint16)texCoord1.x, _holomap_polytab_2_2);
-		polygonTabPtr = _holomap_polytab_2_3;
-	}
-	computeHolomapPolygon(yTop, (uint32)(uint16)texCoord2.y, yBottom, (uint32)(uint16)texCoord1.y, polygonTabPtr);
-}
+	const int16 *pVerticG = &_tabVerticG[yMin];
+	const int16 *pVerticD = &_tabVerticD[yMin];
+	const uint16 *pU0 = (const uint16 *)&_tabx0[yMin];
+	const uint16 *pV0 = (const uint16 *)&_taby0[yMin];
+	const uint16 *pU1 = (const uint16 *)&_tabx1[yMin];
+	const uint16 *pV1 = (const uint16 *)&_taby1[yMin];
+	byte *pDest;
+	int32 ustep, vstep;
+	int16 xMin, xMax;
+	uint32 u0, v0, u1, v1, idx;
+	int32 u, v;
 
-void Renderer::renderHolomapVertices(const Vertex vertexCoordinates[3], const Vertex textureCoordinates[3], uint8 *holomapImage, uint32 holomapImageSize) {
-	int32 top = SCENE_SIZE_MAX;
-	int32 bottom = SCENE_SIZE_MIN;
-	fillHolomapPolygons(vertexCoordinates[0], vertexCoordinates[1], textureCoordinates[0], textureCoordinates[1], top, bottom);
-	fillHolomapPolygons(vertexCoordinates[1], vertexCoordinates[2], textureCoordinates[1], textureCoordinates[2], top, bottom);
-	fillHolomapPolygons(vertexCoordinates[2], vertexCoordinates[0], textureCoordinates[2], textureCoordinates[0], top, bottom);
-	renderHolomapPolygons(top, bottom, holomapImage, holomapImageSize);
-}
+	yMax -= yMin;
 
-void Renderer::renderHolomapPolygons(int32 top, int32 bottom, uint8 *holomapImage, uint32 holomapImageSize) {
-	if (top < 0 || top >= _engine->_frontVideoBuffer.h) {
-		return;
-	}
-	uint8 *screenBufPtr = (uint8 *)_engine->_frontVideoBuffer.getBasePtr(0, top);
+	for (; yMax >= 0; yMax--) {
+		xMin = *pVerticG++;
+		xMax = *pVerticD++;
+		xMax -= xMin;
 
-	const int16 *lholomap_polytab_1_1 = _holomap_polytab_1_1 + top;
-	const int16 *lholomap_polytab_2_1 = _holomap_polytab_2_1 + top;
-	const uint16 *lholomap_polytab_1_2 = (const uint16 *)(_holomap_polytab_1_2 + top);
-	const uint16 *lholomap_polytab_1_3 = (const uint16 *)(_holomap_polytab_1_3 + top);
-	const uint16 *lholomap_polytab_2_2 = (const uint16 *)(_holomap_polytab_2_2 + top);
-	const uint16 *lholomap_polytab_2_3 = (const uint16 *)(_holomap_polytab_2_3 + top);
+		u = u0 = *pU0++;
+		v = v0 = *pV0++;
+		u1 = *pU1++;
+		v1 = *pV1++;
 
-	int32 yHeight = bottom - top;
-	while (yHeight > -1) {
-		int32 u;
-		int32 v;
-		const int16 left = *lholomap_polytab_1_1++;
-		const int16 right = *lholomap_polytab_2_1++;
-		const uint32 u0 = u = *lholomap_polytab_1_2++;
-		const uint32 v0 = v = *lholomap_polytab_1_3++;
-		const uint32 u1 = *lholomap_polytab_2_2++;
-		const uint32 v1 = *lholomap_polytab_2_3++;
-		const int16 width = right - left;
-		if (width > 0) {
-			uint8 *pixelBufPtr = screenBufPtr + left;
+		if (xMax > 0) {
+			pDest = pDestLine + xMin;
 
-			int32 ustep = ((int32)u1 - (int32)u0 + 1) / width;
-			int32 vstep = ((int32)v1 - (int32)v0 + 1) / width;
+			ustep = ((int32)u1 - (int32)u0 + 1) / xMax;
+			vstep = ((int32)v1 - (int32)v0 + 1) / xMax;
 
-			for (int16 i = 0; i < width; ++i) {
-				// u0 & 0xFF00 is the x position on the image * 256
-				// v0 & 0xFF00 is the y position on the image * 256
-				const uint32 idx = ((u >> 8) & 0xff) | (v & 0xff00);
-				assert(idx < holomapImageSize);
-				*pixelBufPtr++ = holomapImage[idx];
+			for (; xMax > 0; xMax--) {
+				idx = ((u >> 8) & 0xFF) | (v & 0xFF00); // u0&0xFF00=column*256, v0&0xFF00 = line*256
+				*pDest++ = holomapImage[idx];
+
 				u += ustep;
 				v += vstep;
 			}
 		}
-		screenBufPtr += _engine->_frontVideoBuffer.pitch;
-		--yHeight;
+
+		pDestLine += screenWidth;
 	}
 }
 

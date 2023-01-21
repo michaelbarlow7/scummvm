@@ -19,6 +19,7 @@
  *
  */
 
+#include "ultima/ultima.h"
 #include "ultima/ultima8/world/actors/main_actor.h"
 #include "ultima/ultima8/world/teleport_egg.h"
 #include "ultima/ultima8/world/current_map.h"
@@ -371,7 +372,7 @@ void MainActor::teleport(int mapNum, int32 x, int32 y, int32 z) {
 
 	// (attempt to) load the new map
 	if (!world->switchMap(mapNum)) {
-		perr << "MainActor::teleport(): switchMap(" << mapNum << ") failed!" << Std::endl;
+		warning("MainActor::teleport(): switchMap(%d) failed", mapNum);
 		return;
 	}
 
@@ -396,14 +397,13 @@ void MainActor::teleport(int mapNum, int teleport_id) {
 	World *world = World::get_instance();
 	CurrentMap *currentmap = world->getCurrentMap();
 
-	pout << "MainActor::teleport(): teleporting to map " << mapNum
-	     << ", egg " << teleport_id << Std::endl;
+	debugC(kDebugActor, "MainActor::teleport(): teleporting to map %d, egg %d", mapNum, teleport_id);
 
 	setMapNum(mapNum);
 
 	// (attempt to) load the new map
 	if (!world->switchMap(mapNum)) {
-		perr << "MainActor::teleport(): switchMap() failed!" << Std::endl;
+		warning("MainActor::teleport(): switchMap() failed");
 		setMapNum(oldmap);
 		return;
 	}
@@ -411,16 +411,15 @@ void MainActor::teleport(int mapNum, int teleport_id) {
 	// find destination
 	TeleportEgg *egg = currentmap->findDestination(teleport_id);
 	if (!egg) {
-		perr << "MainActor::teleport(): destination egg not found!"
-		     << Std::endl;
+		warning("MainActor::teleport(): destination egg not found");
 		teleport(oldmap, oldx, oldy, oldz);
 		return;
 	}
 	int32 xv, yv, zv;
 	egg->getLocation(xv, yv, zv);
 
-	pout << "Found destination: " << xv << "," << yv << "," << zv << Std::endl;
-	egg->dumpInfo();
+	debugC(kDebugActor, "Found destination: %d, %d, %d", xv, yv, zv);
+	debugC(kDebugActor, "%s", egg->dumpInfo().c_str());
 
 	if (GAME_IS_CRUSADER) {
 		// Keep the camera on the avatar (the snap process will update on next move)
@@ -511,6 +510,7 @@ uint16 MainActor::getDamageType() const {
 }
 
 int MainActor::getDamageAmount() const {
+	Common::RandomSource &rs = Ultima8Engine::get_instance()->getRandomSource();
 	int damage = 0;
 
 	if (getLastAnim() == Animation::kick) {
@@ -524,7 +524,7 @@ int MainActor::getDamageAmount() const {
 			kick_bonus = si->_armourInfo[legs->getFrame()]._kickAttackBonus;
 		}
 
-		damage = (getRandom() % (getStr() / 2 + 1)) + kick_bonus;
+		damage = rs.getRandomNumber(getStr() / 2) + kick_bonus;
 
 		return damage;
 
@@ -542,14 +542,14 @@ int MainActor::getDamageAmount() const {
 		int base = si->_weaponInfo->_baseDamage;
 		int mod = si->_weaponInfo->_damageModifier;
 
-		damage = (getRandom() % (mod + 1)) + base + getStr() / 5;
+		damage = rs.getRandomNumber(mod) + base + getStr() / 5;
 
 		return damage;
 	}
 
 	// no weapon?
 
-	damage = (getRandom() % (getStr() / 2 + 1)) + 1;
+	damage = rs.getRandomNumber(getStr() / 2) + 1;
 
 	return damage;
 }
@@ -605,13 +605,15 @@ void MainActor::accumulateStr(int n) {
 	// already max?
 	if (_strength == 25) return; //!! constant
 
+	Common::RandomSource &rs = Ultima8Engine::get_instance()->getRandomSource();
+
 	_accumStr += n;
-	if (_accumStr >= 650 || getRandom() % (650 - _accumStr) == 0) { //!! constant
+	if (_accumStr >= 650 || rs.getRandomNumber(650 - _accumStr) == 0) { //!! constant
 		_strength++;
 		_accumStr = 0;
 		AudioProcess *audioproc = AudioProcess::get_instance();
 		if (audioproc) audioproc->playSFX(0x36, 0x60, 1, 0); //constants!!
-		pout << "Gained _strength!" << Std::endl;
+		debugC(kDebugActor, "Gained _strength!");
 	}
 }
 
@@ -619,13 +621,15 @@ void MainActor::accumulateDex(int n) {
 	// already max?
 	if (_dexterity == 25) return; //!! constant
 
+	Common::RandomSource &rs = Ultima8Engine::get_instance()->getRandomSource();
+
 	_accumDex += n;
-	if (_accumDex >= 650 || getRandom() % (650 - _accumDex) == 0) { //!! constant
+	if (_accumDex >= 650 || rs.getRandomNumber(650 - _accumDex) == 0) { //!! constant
 		_dexterity++;
 		_accumDex = 0;
 		AudioProcess *audioproc = AudioProcess::get_instance();
 		if (audioproc) audioproc->playSFX(0x36, 0x60, 1, 0); //constants!!
-		pout << "Gained _dexterity!" << Std::endl;
+		debugC(kDebugActor, "Gained _dexterity!");
 	}
 }
 
@@ -633,13 +637,15 @@ void MainActor::accumulateInt(int n) {
 	// already max?
 	if (_intelligence == 25) return; //!! constant
 
+	Common::RandomSource &rs = Ultima8Engine::get_instance()->getRandomSource();
+
 	_accumInt += n;
-	if (_accumInt >= 650 || getRandom() % (650 - _accumInt) == 0) { //!! constant
+	if (_accumInt >= 650 || rs.getRandomNumber(650 - _accumInt) == 0) { //!! constant
 		_intelligence++;
 		_accumInt = 0;
 		AudioProcess *audioproc = AudioProcess::get_instance();
 		if (audioproc) audioproc->playSFX(0x36, 0x60, 1, 0); //constants!!
-		pout << "Gained _intelligence!" << Std::endl;
+		debugC(kDebugActor, "Gained _intelligence!");
 	}
 }
 
@@ -966,7 +972,7 @@ void MainActor::useInventoryItem(Item *item) {
 	if (!item)
 		return;
 	if (Ultima8Engine::get_instance()->isAvatarInStasis()) {
-		pout << "Can't use item: avatarInStasis" << Std::endl;
+		debugC(kDebugActor, "Can't use item: avatarInStasis");
 		return;
 	}
 	const int32 shapenum = item->getShape();

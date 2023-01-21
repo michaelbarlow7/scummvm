@@ -523,7 +523,7 @@ void drawObjects(SDactor &act, PSXLampList &lamplist, PSXrgb *pAmbient, PSXShade
 int32 drawSpecialObjects(SDactor &actor, MATRIXPC *local2screen, int32 brightness, SVECTOR *minBBox, SVECTOR *maxBBox) {
 	// Shooting ?
 	int32 mflash = 0;
-	SVECTOR mpos;
+	SVECTOR mpos = {0, 0, 0, 0};
 
 	_mega *&mega = actor.log->mega;
 	_vox_image *&vox = actor.log->voxel_info;
@@ -616,7 +616,7 @@ void StageDrawPoly(SDactor *actors, uint32 actorQty) {
 	}
 
 	uint32 nl = set->GetPRig()->nLamps;
-	if ((nl == 0) || (nl > MAX_NUMBER_LIGHTS)) {
+	if ((nl == 0) || (nl >= MAX_NUMBER_LIGHTS)) {
 		Fatal_error("Illegal number of lights %d in rlp file", nl);
 	}
 
