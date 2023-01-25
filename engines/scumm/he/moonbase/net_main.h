@@ -154,6 +154,7 @@ public:
 	// For creating/joining sessions over the Internet.
 	Networking::Host *_sessionServerHost;
 	int _sessionServerPeer;
+	bool _isRelayingGame; // If we're relaying in-game data over the session server or not.
 };
 
 } // End of namespace Scumm

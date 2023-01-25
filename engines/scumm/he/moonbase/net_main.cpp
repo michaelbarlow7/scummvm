@@ -40,6 +40,7 @@ Net::Net(ScummEngine_v100he *vm) : _latencyTime(1), _fakeLatency(false), _vm(vm)
 
 	_sessionServerPeer = -1;
 	_sessionServerHost = nullptr;
+	_isRelayingGame = false;
 
 	_numUsers = 0;
 	_numBots = 0;
@@ -88,6 +89,7 @@ int Net::hostGame(char *sessionName, char *userName) {
 	if (createSession(sessionName)) {
 		if (addUser(userName, userName)) {
 			_myUserId = _userIdCounter;
+			_userIdToPeerIndex[_myUserId] = -1;
 			return 1;
 		} else {
 			_vm->displayMessage(0, "Error Adding User \"%s\" to Session \"%s\"", userName, sessionName);
@@ -192,6 +194,9 @@ int Net::addUser(char *shortName, char *longName) {
 	}
 
 	// Client:
+	if (_myUserId != -1)
+		return 1;
+
 	Common::String addUser = Common::String::format(
 		"{\"cmd\":\"add_user\",\"name\":\"%s\"}", longName);
 	
@@ -302,6 +307,32 @@ int Net::joinSession(int sessionIndex) {
 
 	bool success = connectToSession(session.host, session.port);
 	if (!success) {
+		if (!session.local) {
+			// Start up a relay session with the host.
+			
+			// This will re-connect us to the session server.
+			startQuerySessions();
+			if (_sessionServerHost) {
+				Common::String startRelay = Common::String::format(
+					"{\"cmd\":\"start_relay\",\"game\":\"moonbase\",\"version\":\"%s\",\"session\":%d}",
+					_gameVersion.c_str(), session.id);
+				_sessionServerHost->send(startRelay.c_str(), 0);
+
+				uint tickCount = 0;
+				while(_myUserId == -1) {
+					serviceSessionServer();
+					// Wait for five seconds for our user id before giving up
+					tickCount += 5;
+					g_system->delayMillis(5);
+					if (tickCount >= 5000)
+						break;
+				}
+
+				if (_myUserId > -1)
+					// If we have gotten our user id, that means that we are now relaying.
+					return true;
+			}
+		}
 		_vm->displayMessage(0, "Unable to join game session with address \"%s:%d\"", session.host.c_str(), session.port);
 		return false;
 	}
@@ -362,12 +393,14 @@ int Net::endSession() {
 	_hostDataQueue.clear();
 	_peerIndexQueue.clear();
 
+	_isRelayingGame = false;
+
 	return 0;
 }
 
 void Net::disableSessionJoining() {
 	debug(1, "Net::disableSessionJoining()"); // PN_DisableSessionPlayerJoin
-	if (_sessionHost && _sessionServerPeer > -1) {
+	if (_sessionHost && _sessionServerPeer > -1 && !_isRelayingGame) {
 		_sessionHost->disconnectPeer(_sessionServerPeer);
 		_sessionServerPeer = -1;
 	}
@@ -436,7 +469,7 @@ bool Net::destroyPlayer(int32 userId) {
 				_userIdToAddress.erase(userId);
 			}
 
-			if (_userIdToPeerIndex.contains(userId)) {
+			if (_userIdToPeerIndex.contains(userId) && _userIdToPeerIndex[userId] != _sessionServerPeer) {
 				_sessionHost->disconnectPeer(_userIdToPeerIndex[userId]);
 				_userIdToPeerIndex.erase(userId);
 			}
@@ -511,8 +544,7 @@ int32 Net::updateQuerySessions() {
 void Net::stopQuerySessions() {
 	debug(1, "Net::stopQuerySessions()"); // StopQuerySessions
 
-	if (_sessionServerHost) {
-		// TODO: Do not delete session server host if we're relaying in-game data.
+	if (_sessionServerHost && !_isRelayingGame) {
 		_sessionServerHost->disconnectPeer(0);
 		delete _sessionServerHost;
 		_sessionServerHost = nullptr;
@@ -776,12 +808,12 @@ void Net::handleSessionServerData(Common::String data) {
 	Common::JSONObject root = json->asObject();
 	if (root.contains("cmd") && root["cmd"]->isString()) {
 		Common::String command = root["cmd"]->asString();
-		if (command == "host_session_resp") {
+		if (_isHost && command == "host_session_resp") {
 			if (root.contains("id")) {
 				_sessionId = root["id"]->asIntegerNumber();
 				debug(1, "NETWORK: Our session id from session server: %d", _sessionId);
 			}
-		} else if (command == "get_sessions_resp") {
+		} else if (!_isHost && command == "get_sessions_resp") {
 			if (root.contains("address") && root.contains("sessions")) {
 				_hostPort = getAddressFromString(root["address"]->asString()).port;
 				Common::JSONArray sessions = root["sessions"]->asArray();
@@ -817,7 +849,7 @@ void Net::handleSessionServerData(Common::String data) {
 					_sessions.push_back(session);
 				}
 			}
-		} else if (command == "joining_session") {
+		} else if (_isHost && command == "joining_session") {
 			// Someone is gonna attempt to join our session.  Get their address and hole-punch:
 			if (_sessionHost && root.contains("address")) {
 				Address address = getAddressFromString(root["address"]->asString());
@@ -829,6 +861,55 @@ void Net::handleSessionServerData(Common::String data) {
 				debug(1, "NETWORK: Hole punching %s:%d", address.host.c_str(), address.port);
 				_sessionHost->sendRawData(address.host, address.port, "");
 			}
+		} else if (_isHost && command == "add_user_for_relay") {
+			// For cases that peer-to-peer communication is not possible, the session server
+			// will act as a relay to the host.
+			if (root.contains("address")) {
+				// To be sent back for context.
+				Common::String address = root["address"]->asString();
+				
+				if (addUser(const_cast<char *>(address.c_str()), const_cast<char *>(address.c_str()))) {
+					_userIdToAddress[_userIdCounter] = "127.0.0.1:9120";
+					_addressToUserId["127.0.0.1:9120"] = _userIdCounter;
+					_userIdToPeerIndex[_userIdCounter] = _sessionServerPeer;
+
+					_isRelayingGame = true;
+
+					Common::String resp = Common::String::format(
+						"{\"cmd\":\"add_user_resp\",\"game\":\"moonbase\",\"version\":\"%s\",\"address\":\"%s\",\"id\":%d}",
+						_gameVersion.c_str(), address.c_str(), _userIdCounter);
+					_sessionHost->send(resp.c_str(), _sessionServerPeer);
+				}
+			}
+		} else if (!_isHost && command == "add_user_resp") {
+			if (root.contains("id") && _myUserId == -1) {
+				_myUserId = root["id"]->asIntegerNumber();
+
+				// We are now relaying data to the session server,
+				// set the sessionServerHost as the sessionHost.
+				_isRelayingGame = true;
+				_sessionHost = _sessionServerHost;
+				_sessionServerHost = nullptr;
+			}
+		} else if (_isHost && command == "remove_user") {
+			// Relay user wants their removal (if they haven't been removed already).
+			if (root.contains("id")) {
+				int userId = root["id"]->asIntegerNumber();
+				if (_userIdToName.contains(userId)) {
+					if (_userIdToPeerIndex[userId] == _sessionServerPeer) {
+						debugC(1, "Removing relay user %d", userId);
+						destroyPlayer(userId);
+					} else {
+						warning("NETWORK: Attempt to remove non-relay user: %d", userId);
+					}
+				}
+			}
+		} else if (command == "game") {
+			// Received relayed data.
+			if (_isHost)
+				handleGameDataHost(json, _sessionServerPeer);
+			else
+				handleGameData(json, _sessionServerPeer);
 		}
 	}
 }
@@ -1172,6 +1253,7 @@ void Net::handleGameData(Common::JSONValue *json, int peerIndex) {
 }
 
 void Net::handleGameDataHost(Common::JSONValue *json, int peerIndex) {
+	int from = json->child("from")->asIntegerNumber();
 	int to = json->child("to")->asIntegerNumber();
 	int toparam = json->child("toparam")->asIntegerNumber();
 	bool reliable = json->child("reliable")->asBool();
@@ -1210,9 +1292,19 @@ void Net::handleGameDataHost(Common::JSONValue *json, int peerIndex) {
 			if (!_isShuttingDown)
 				handleGameData(json, peerIndex);
 			Common::String str = Common::JSON::stringify(json);
+			bool sentToSessionServer = false;
 			for (int i = 0; i < _numUsers; i++) {
-				if (i != peerIndex && i != _sessionServerPeer)
-					_sessionHost->send(str.c_str(), i, 0, reliable);
+				if (i != _userIdToPeerIndex[from]) {
+					if (i == _sessionServerPeer) {
+						// If we are relaying game data, make sure that the data only get sent
+						// to the session server only once.
+						if (_isRelayingGame && !sentToSessionServer) {
+							_sessionHost->send(str.c_str(), _sessionServerPeer, 0, reliable);
+							sentToSessionServer = true;
+						}
+					} else
+						_sessionHost->send(str.c_str(), i, 0, reliable);
+				}
 			}
 		}
 		break;
