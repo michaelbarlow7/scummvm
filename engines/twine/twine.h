@@ -39,6 +39,7 @@
 #include "twine/scene/actor.h"
 #include "twine/script/script_life.h"
 #include "twine/script/script_move.h"
+#include "twine/shared.h"
 
 namespace TwinE {
 
@@ -263,6 +264,11 @@ public:
 	const char *getGameId() const;
 	Common::Language getGameLang() const;
 
+	inline int numLocations() const {
+		const int maxLocations = isLBA1() ? 150 : NUM_LOCATIONS;
+		return maxLocations;
+	}
+
 	bool unlockAchievement(const Common::String &id);
 
 	Actor *_actor;
@@ -296,7 +302,7 @@ public:
 
 	int32 _frameCounter = 0;
 	SceneLoopState _sceneLoopState = SceneLoopState::ReturnToMenu;
-	int32 _lbaTime = 0;
+	int32 timerRef = 0;
 
 	int32 _loopInventoryItem = 0;
 	int32 _loopActorStep = 0;
@@ -327,6 +333,9 @@ public:
 	void exitSceneryView();
 
 	void queueMovie(const char *filename);
+
+	void clearScreenMinMax(Common::Rect &rect);
+	void adjustScreenMax(Common::Rect &rect, int16 x, int16 y);
 
 	/**
 	 * @return A random value between [0-max)

@@ -97,6 +97,7 @@ FreescapeEngine::FreescapeEngine(OSystem *syst, const ADGameDescription *gd)
 	_flyMode = false;
 	_noClipMode = false;
 	_forceEndGame = false;
+	_syncSound = false;
 	_playerHeightNumber = 1;
 	_angleRotationIndex = 0;
 
@@ -132,6 +133,7 @@ FreescapeEngine::FreescapeEngine(OSystem *syst, const ADGameDescription *gd)
 	_viewArea = _fullscreenViewArea;
 	_rnd = new Common::RandomSource("freescape");
 	_gfx = nullptr;
+	_speaker = nullptr;
 	_savedScreen = nullptr;
 
 	_timerStarted = false;
@@ -173,6 +175,7 @@ FreescapeEngine::~FreescapeEngine() {
 
 	delete _gfx;
 	delete _dataBundle;
+	delete _speaker;
 }
 
 void FreescapeEngine::drawBorder() {
@@ -500,6 +503,8 @@ Common::Error FreescapeEngine::run() {
 	_screenW = g_system->getWidth();
 	_screenH = g_system->getHeight();
 	_gfx = createRenderer(_screenW, _screenH, _renderMode);
+	_speaker = new SizedPCSpeaker();
+	_speaker->setVolume(50);
 	_crossairPosition.x = _screenW / 2;
 	_crossairPosition.y = _screenH / 2;
 

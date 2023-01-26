@@ -69,19 +69,24 @@ void Renderer::init(int32 w, int32 h) {
 	_tabx1 = _tabCoulD;
 }
 
-IVec3 &Renderer::projectPositionOnScreen(int32 cX, int32 cY, int32 cZ) { // ProjettePoint
+void Renderer::projIso(IVec3 &pos, int32 x, int32 y, int32 z) {
+	pos.x = (int16)((((x - z) * 24) / ISO_SCALE) + _projectionCenter.x);
+	pos.y = (int16)(((((x + z) * 12) - (y * 30)) / ISO_SCALE) + _projectionCenter.y);
+	pos.z = 0;
+}
+
+IVec3 Renderer::projectPoint(int32 cX, int32 cY, int32 cZ) { // ProjettePoint
+	IVec3 pos;
 	if (_isUsingIsoProjection) {
-		_projPos.x = ((cX - cZ) * 24) / ISO_SCALE + _projectionCenter.x;
-		_projPos.y = (((cX + cZ) * 12) - cY * 30) / ISO_SCALE + _projectionCenter.y;
-		_projPos.z = cZ - cY - cX;
-		return _projPos;
+		projIso(pos, cX, cY, cZ);
+		return pos;
 	}
 
 	if (_cameraRot.z - cZ < 0) {
-		_projPos.x = 0;
-		_projPos.y = 0;
-		_projPos.z = 0;
-		return _projPos;
+		pos.x = 0;
+		pos.y = 0;
+		pos.z = 0;
+		return pos;
 	}
 
 	cX -= _cameraRot.x;
@@ -93,10 +98,10 @@ IVec3 &Renderer::projectPositionOnScreen(int32 cX, int32 cY, int32 cZ) { // Proj
 		posZ = 0x7FFF;
 	}
 
-	_projPos.x = (cX * _lFactorX) / posZ + _projectionCenter.x;
-	_projPos.y = (-cY * _lFactorY) / posZ + _projectionCenter.y;
-	_projPos.z = posZ;
-	return _projPos;
+	pos.x = (cX * _lFactorX) / posZ + _projectionCenter.x;
+	pos.y = (-cY * _lFactorY) / posZ + _projectionCenter.y;
+	pos.z = posZ;
+	return pos;
 }
 
 void Renderer::setProjection(int32 x, int32 y, int32 kfact, int32 lfactx, int32 lfacty) {
@@ -206,8 +211,8 @@ void Renderer::setFollowCamera(int32 transPosX, int32 transPosY, int32 transPosZ
 
 IVec3 Renderer::getHolomapRotation(const int32 x, const int32 y, const int32 angle) const {
 	if (angle) {
-		const int32 nSin = lba1ShadeAngleTable[ClampAngle(angle)];
-		const int32 nCos = lba1ShadeAngleTable[ClampAngle((angle + LBAAngles::ANGLE_90))];
+		const int32 nSin = sinTab[ClampAngle(angle)];
+		const int32 nCos = sinTab[ClampAngle((angle + LBAAngles::ANGLE_90))];
 
 		const int32 x0 = ((x * nCos) + (y * nSin)) >> 14;
 		const int32 y0 = ((y * nCos) - (x * nSin)) >> 14;
@@ -222,9 +227,9 @@ void Renderer::rotMatIndex2(IMatrix3x3 *targetMatrix, const IMatrix3x3 *currentM
 
 	if (angleVec.x) {
 		int32 angle = angleVec.x;
-		int32 angleVar2 = lba1ShadeAngleTable[ClampAngle(angle)];
+		int32 angleVar2 = sinTab[ClampAngle(angle)];
 		angle += LBAAngles::ANGLE_90;
-		int32 angleVar1 = lba1ShadeAngleTable[ClampAngle(angle)];
+		int32 angleVar1 = sinTab[ClampAngle(angle)];
 
 		matrix1.row1.x = currentMatrix->row1.x;
 		matrix1.row2.x = currentMatrix->row2.x;
@@ -242,9 +247,9 @@ void Renderer::rotMatIndex2(IMatrix3x3 *targetMatrix, const IMatrix3x3 *currentM
 
 	if (angleVec.z) {
 		int32 angle = angleVec.z;
-		int32 angleVar2 = lba1ShadeAngleTable[ClampAngle(angle)];
+		int32 angleVar2 = sinTab[ClampAngle(angle)];
 		angle += LBAAngles::ANGLE_90;
-		int32 angleVar1 = lba1ShadeAngleTable[ClampAngle(angle)];
+		int32 angleVar1 = sinTab[ClampAngle(angle)];
 
 		matrix2.row1.z = matrix1.row1.z;
 		matrix2.row2.z = matrix1.row2.z;
@@ -262,9 +267,9 @@ void Renderer::rotMatIndex2(IMatrix3x3 *targetMatrix, const IMatrix3x3 *currentM
 
 	if (angleVec.y) {
 		int32 angle = angleVec.y;
-		int32 angleVar2 = lba1ShadeAngleTable[ClampAngle(angle)];
+		int32 angleVar2 = sinTab[ClampAngle(angle)];
 		angle += LBAAngles::ANGLE_90;
-		int32 angleVar1 = lba1ShadeAngleTable[ClampAngle(angle)];
+		int32 angleVar1 = sinTab[ClampAngle(angle)];
 
 		targetMatrix->row1.y = matrix2.row1.y;
 		targetMatrix->row2.y = matrix2.row2.y;
@@ -291,7 +296,7 @@ bool isPolygonVisible(const ComputedVertex *vertices) { // TestVuePoly
 	return true;
 }
 
-void Renderer::applyPointsRotation(const Common::Array<BodyVertex> &vertices, int32 firstPoint, int32 numPoints, I16Vec3 *destPoints, const IMatrix3x3 *rotationMatrix, const IVec3 &destPos) {
+void Renderer::rotList(const Common::Array<BodyVertex> &vertices, int32 firstPoint, int32 numPoints, I16Vec3 *destPoints, const IMatrix3x3 *rotationMatrix, const IVec3 &destPos) {
 	for (int32 i = 0; i < numPoints; ++i) {
 		const BodyVertex &vertex = vertices[i + firstPoint];
 		destPoints->x = (int16)((rotationMatrix->row1.x * vertex.x + rotationMatrix->row1.y * vertex.y + rotationMatrix->row1.z * vertex.z) / SCENE_SIZE_HALF) + destPos.x;
@@ -327,7 +332,7 @@ void Renderer::processRotatedElement(IMatrix3x3 *targetMatrix, const Common::Arr
 		warning("RENDER WARNING: No points in this model!");
 	}
 
-	applyPointsRotation(vertices, firstPoint, numOfPoints, &modelData->computedPoints[firstPoint], targetMatrix, destPos);
+	rotList(vertices, firstPoint, numOfPoints, &modelData->computedPoints[firstPoint], targetMatrix, destPos);
 }
 
 void Renderer::applyPointsTranslation(const Common::Array<BodyVertex> &vertices, int32 firstPoint, int32 numPoints, I16Vec3 *destPoints, const IMatrix3x3 *translationMatrix, const IVec3 &angleVec, const IVec3 &destPos) {
@@ -373,10 +378,6 @@ void Renderer::setLightVector(int32 angleX, int32 angleY, int32 angleZ) {
 	IMatrix3x3 matrix;
 	rotMatIndex2(&matrix, &_matrixWorld, renderAngle);
 	_normalLight = rot(matrix, 0, 0, normalUnit - 5);
-}
-
-static FORCEINLINE int16 clamp(int16 x, int16 a, int16 b) {
-	return x < a ? a : (x > b ? b : x);
 }
 
 int16 Renderer::leftClip(int16 polyRenderType, ComputedVertex** offTabPoly, int32 numVertices) {
@@ -619,36 +620,33 @@ int16 Renderer::bottomClip(int16 polyRenderType, ComputedVertex** offTabPoly, in
 	return newNbPoints;
 }
 
-int32 Renderer::computePolyMinMax(int16 polyRenderType, ComputedVertex **offTabPoly, int32 numVertices, int &vtop, int &vbottom) {
-	const Common::Rect &clip = _engine->_interface->_clip;
-	if (clip.isEmpty()) {
-		return numVertices;
-	}
+int32 Renderer::computePolyMinMax(int16 polyRenderType, ComputedVertex **offTabPoly, int32 numVertices, int16 &ymin, int16 &ymax) {
+	int16 xmin = SCENE_SIZE_MAX;
+	int16 xmax = SCENE_SIZE_MIN;
 
-	int32 minsx = SCENE_SIZE_MAX;
-	int32 maxsx = SCENE_SIZE_MIN;
-	int32 minsy = SCENE_SIZE_MAX;
-	int32 maxsy = SCENE_SIZE_MIN;
+	ymin = SCENE_SIZE_MAX;
+	ymax = SCENE_SIZE_MIN;
 
 	ComputedVertex* pTabPoly = offTabPoly[0];
 	for (int32 i = 0; i < numVertices; i++) {
-		if (pTabPoly[i].x < minsx) {
-			minsx = pTabPoly[i].x;
+		if (pTabPoly[i].x < xmin) {
+			xmin = pTabPoly[i].x;
 		}
-		if (pTabPoly[i].x > maxsx) {
-			maxsx = pTabPoly[i].x;
+		if (pTabPoly[i].x > xmax) {
+			xmax = pTabPoly[i].x;
 		}
-		if (pTabPoly[i].y < minsy) {
-			minsy = pTabPoly[i].y;
+		if (pTabPoly[i].y < ymin) {
+			ymin = pTabPoly[i].y;
 		}
-		if (pTabPoly[i].y > maxsy) {
-			maxsy = pTabPoly[i].y;
+		if (pTabPoly[i].y > ymax) {
+			ymax = pTabPoly[i].y;
 		}
 	}
 
+	const Common::Rect &clip = _engine->_interface->_clip;
 	// no vertices
-	if (minsy > maxsy || maxsx < clip.left || minsx > clip.right || maxsy < clip.top || minsy > clip.bottom) {
-		debug(10, "Clipped %i:%i:%i:%i, clip rect(%i:%i:%i:%i)", minsx, minsy, maxsx, maxsy, clip.left, clip.top, clip.right, clip.bottom);
+	if (ymin > ymax || xmax < clip.left || xmin > clip.right || ymax < clip.top || ymin > clip.bottom) {
+		debug(10, "Clipped %i:%i:%i:%i, clip rect(%i:%i:%i:%i)", xmin, ymin, xmax, ymax, clip.left, clip.top, clip.right, clip.bottom);
 		return 0;
 	}
 
@@ -657,7 +655,7 @@ int32 Renderer::computePolyMinMax(int16 polyRenderType, ComputedVertex **offTabP
 	bool hasBeenClipped = false;
 
 	int32 clippedNumVertices = numVertices;
-	if (minsx < clip.left) {
+	if (xmin < clip.left) {
 		clippedNumVertices = leftClip(polyRenderType, offTabPoly, clippedNumVertices);
 		if (!clippedNumVertices) {
 			return 0;
@@ -666,7 +664,7 @@ int32 Renderer::computePolyMinMax(int16 polyRenderType, ComputedVertex **offTabP
 		hasBeenClipped = true;
 	}
 
-	if (maxsx > clip.right) {
+	if (xmax > clip.right) {
 		clippedNumVertices = rightClip(polyRenderType, offTabPoly, clippedNumVertices);
 		if (!clippedNumVertices) {
 			return 0;
@@ -675,7 +673,7 @@ int32 Renderer::computePolyMinMax(int16 polyRenderType, ComputedVertex **offTabP
 		hasBeenClipped = true;
 	}
 
-	if (minsy < clip.top) {
+	if (ymin < clip.top) {
 		clippedNumVertices = topClip(polyRenderType, offTabPoly, clippedNumVertices);
 		if (!clippedNumVertices) {
 			return 0;
@@ -684,7 +682,7 @@ int32 Renderer::computePolyMinMax(int16 polyRenderType, ComputedVertex **offTabP
 		hasBeenClipped = true;
 	}
 
-	if (maxsy > clip.bottom) {
+	if (ymax > clip.bottom) {
 		clippedNumVertices = bottomClip(polyRenderType, offTabPoly, clippedNumVertices);
 		if (!clippedNumVertices) {
 			return 0;
@@ -694,31 +692,28 @@ int32 Renderer::computePolyMinMax(int16 polyRenderType, ComputedVertex **offTabP
 	}
 
 	if (hasBeenClipped) {
-		minsy = 32767;
-		maxsy = -32768;
+		ymin = 32767;
+		ymax = -32768;
 
 		for (int32 i = 0; i < clippedNumVertices; i++) {
-			if (offTabPoly[0][i].y < minsy) {
-				minsy = offTabPoly[0][i].y;
+			if (offTabPoly[0][i].y < ymin) {
+				ymin = offTabPoly[0][i].y;
 			}
 
-			if (offTabPoly[0][i].y > maxsy) {
-				maxsy = offTabPoly[0][i].y;
+			if (offTabPoly[0][i].y > ymax) {
+				ymax = offTabPoly[0][i].y;
 			}
 		}
 
-		if (minsy >= maxsy) {
+		if (ymin >= ymax) {
 			return 0;
 		}
 	}
 
-	vtop = minsy;
-	vbottom = maxsy;
-
 	return clippedNumVertices;
 }
 
-bool Renderer::computePoly(int16 polyRenderType, const ComputedVertex *vertices, int32 numVertices, int &vtop, int &vbottom) {
+bool Renderer::computePoly(int16 polyRenderType, const ComputedVertex *vertices, int32 numVertices, int16 &vtop, int16 &vbottom) {
 	assert(numVertices < ARRAYSIZE(_clippedPolygonVertices1));
 	for (int i = 0; i < numVertices; ++i) {
 		_clippedPolygonVertices1[i] = vertices[i];
@@ -734,9 +729,9 @@ bool Renderer::computePoly(int16 polyRenderType, const ComputedVertex *vertices,
 	ComputedVertex *pTabPoly = offTabPoly[0];
 	ComputedVertex *p0;
 	ComputedVertex *p1;
-	int16 *pVertic;
+	int16 *pVertic = nullptr;
 	int16 *pCoul;
-	int32 incY;
+	int32 incY = -1;
 	int32 dx, dy, x, y, dc;
 	int32 step, reminder;
 
@@ -1176,7 +1171,8 @@ void Renderer::svgaPolyTriche(int16 vtop, int16 Ymax, uint16 color) const {
 	}
 }
 
-void Renderer::renderPolygons(const CmdRenderPolygon &polygon, ComputedVertex *vertices, int vtop, int vbottom) {
+void Renderer::renderPolygons(const CmdRenderPolygon &polygon, ComputedVertex *vertices) {
+	int16 vtop, vbottom;
 	if (computePoly(polygon.renderType, vertices, polygon.numVertices, vtop, vbottom)) {
 		fillVertices(vtop, vbottom, polygon.renderType, polygon.colorIndex);
 	}
@@ -1380,8 +1376,6 @@ uint8 *Renderer::preparePolygons(const Common::Array<BodyPolygon> &polygons, int
 
 		CmdRenderPolygon *destinationPolygon = (CmdRenderPolygon *)(void*)renderBufferPtr;
 		destinationPolygon->numVertices = numVertices;
-		destinationPolygon->top = SCENE_SIZE_MAX;
-		destinationPolygon->bottom = SCENE_SIZE_MIN;
 
 		renderBufferPtr += sizeof(CmdRenderPolygon);
 
@@ -1391,7 +1385,7 @@ uint8 *Renderer::preparePolygons(const Common::Array<BodyPolygon> &polygons, int
 		ComputedVertex *vertex = vertices;
 
 		if (materialType >= MAT_GOURAUD) {
-			destinationPolygon->renderType = polygon.materialType - (MAT_GOURAUD - POLYGONTYPE_GOURAUD);
+			destinationPolygon->renderType = polygon.materialType - (MAT_GOURAUD - MAT_FLAT);
 			destinationPolygon->colorIndex = polygon.intensity;
 
 			for (int16 idx = 0; idx < numVertices; ++idx) {
@@ -1403,8 +1397,6 @@ uint8 *Renderer::preparePolygons(const Common::Array<BodyPolygon> &polygons, int
 				vertex->intensity = shadeValue;
 				vertex->x = point->x;
 				vertex->y = point->y;
-				destinationPolygon->top = MIN<int16>(destinationPolygon->top, vertex->y);
-				destinationPolygon->bottom = MAX<int16>(destinationPolygon->bottom, vertex->y);
 				zMax = MAX(zMax, point->z);
 				++vertex;
 			}
@@ -1428,8 +1420,6 @@ uint8 *Renderer::preparePolygons(const Common::Array<BodyPolygon> &polygons, int
 				vertex->intensity = destinationPolygon->colorIndex;
 				vertex->x = point->x;
 				vertex->y = point->y;
-				destinationPolygon->top = MIN<int16>(destinationPolygon->top, vertex->y);
-				destinationPolygon->bottom = MAX<int16>(destinationPolygon->bottom, vertex->y);
 				zMax = MAX<int16>(zMax, point->z);
 				++vertex;
 			}
@@ -1487,7 +1477,7 @@ bool Renderer::renderObjectIso(const BodyData &bodyData, RenderCommand **renderC
 		case RENDERTYPE_DRAWPOLYGON: {
 			const CmdRenderPolygon *header = (const CmdRenderPolygon *)(const void*)pointer;
 			ComputedVertex *vertices = (ComputedVertex *)(void*)(pointer + sizeof(CmdRenderPolygon));
-			renderPolygons(*header, vertices, header->top, header->bottom);
+			renderPolygons(*header, vertices);
 			break;
 		}
 		case RENDERTYPE_DRAWSPHERE: {
@@ -1575,13 +1565,12 @@ void Renderer::animModel(ModelData *modelData, const BodyData &bodyData, RenderC
 	const I16Vec3 *pointPtr = &modelData->computedPoints[0];
 	I16Vec3 *pointPtrDest = &modelData->flattenPoints[0];
 
-	if (_isUsingIsoProjection) { // use standard projection
+	if (_isUsingIsoProjection) {
 		do {
 			const int32 coX = pointPtr->x + renderPos.x;
 			const int32 coY = pointPtr->y + renderPos.y;
 			const int32 coZ = -(pointPtr->z + renderPos.z);
 
-			// TODO: use projectPositionOnScreen()
 			pointPtrDest->x = (coX + coZ) * 24 / ISO_SCALE + _projectionCenter.x;
 			pointPtrDest->y = (((coX - coZ) * 12) - coY * 30) / ISO_SCALE + _projectionCenter.y;
 			pointPtrDest->z = coZ - coX - coY;
@@ -1605,61 +1594,39 @@ void Renderer::animModel(ModelData *modelData, const BodyData &bodyData, RenderC
 		} while (--numOfPrimitives);
 	} else {
 		do {
-			int32 coX = pointPtr->x + renderPos.x;
-			int32 coY = pointPtr->y + renderPos.y;
-			int32 coZ = -(pointPtr->z + renderPos.z);
-
-			coZ += _kFactor;
-
+			int32 coZ = _kFactor - (pointPtr->z + renderPos.z);
 			if (coZ <= 0) {
 				coZ = 0x7FFFFFFF;
 			}
 
-			// X projection
-			{
-				coX = _projectionCenter.x + ((coX * _lFactorX) / coZ);
-
-				if (coX > 0xFFFF) {
-					coX = 0x7FFF;
-				}
-
-				pointPtrDest->x = coX;
-
-				if (pointPtrDest->x < modelRect.left) {
-					modelRect.left = pointPtrDest->x;
-				}
-
-				if (pointPtrDest->x > modelRect.right) {
-					modelRect.right = pointPtrDest->x;
-				}
+			int32 coX = (((pointPtr->x + renderPos.x) * _lFactorX) / coZ) + _projectionCenter.x;
+			if (coX > 0xFFFF) {
+				coX = 0x7FFF;
+			}
+			pointPtrDest->x = coX;
+			if (pointPtrDest->x < modelRect.left) {
+				modelRect.left = pointPtrDest->x;
+			}
+			if (pointPtrDest->x > modelRect.right) {
+				modelRect.right = pointPtrDest->x;
 			}
 
-			// Y projection
-			{
-				coY = _projectionCenter.y + ((-coY * _lFactorY) / coZ);
-
-				if (coY > 0xFFFF) {
-					coY = 0x7FFF;
-				}
-
-				pointPtrDest->y = coY;
-
-				if (pointPtrDest->y < modelRect.top) {
-					modelRect.top = pointPtrDest->y;
-				}
-				if (pointPtrDest->y > modelRect.bottom) {
-					modelRect.bottom = pointPtrDest->y;
-				}
+			int32 coY = _projectionCenter.y - (((pointPtr->y + renderPos.y) * _lFactorY) / coZ);
+			if (coY > 0xFFFF) {
+				coY = 0x7FFF;
+			}
+			pointPtrDest->y = coY;
+			if (pointPtrDest->y < modelRect.top) {
+				modelRect.top = pointPtrDest->y;
+			}
+			if (pointPtrDest->y > modelRect.bottom) {
+				modelRect.bottom = pointPtrDest->y;
 			}
 
-			// Z projection
-			{
-				if (coZ > 0xFFFF) {
-					coZ = 0x7FFF;
-				}
-
-				pointPtrDest->z = coZ;
+			if (coZ > 0xFFFF) {
+				coZ = 0x7FFF;
 			}
+			pointPtrDest->z = coZ;
 
 			pointPtr++;
 			pointPtrDest++;
@@ -1757,7 +1724,7 @@ bool Renderer::affObjetIso(int32 x, int32 y, int32 z, int32 angleX, int32 angleY
 	return true;
 }
 
-void Renderer::renderBehaviourModel(const Common::Rect &rect, int32 y, int32 angle, const BodyData &bodyData, ActorMoveStruct &move) {
+void Renderer::drawObj3D(const Common::Rect &rect, int32 y, int32 angle, const BodyData &bodyData, ActorMoveStruct &move) {
 	int32 boxLeft = rect.left;
 	int32 boxTop = rect.top;
 	int32 boxRight = rect.right;
@@ -1770,15 +1737,12 @@ void Renderer::renderBehaviourModel(const Common::Rect &rect, int32 y, int32 ang
 
 	Common::Rect dummy;
 	if (angle == -1) {
-		const int16 newAngle = move.getRealAngle(_engine->_lbaTime);
-		if (move.numOfStep == 0) {
-			_engine->_movements->initRealAngle(newAngle, newAngle - LBAAngles::ANGLE_90, LBAAngles::ANGLE_17, &move);
+		angle = move.getRealAngle(_engine->timerRef);
+		if (move.timeValue == 0) {
+			_engine->_movements->initRealAngle(angle, angle - LBAAngles::ANGLE_90, LBAAngles::ANGLE_17, &move);
 		}
-		affObjetIso(0, y, 0, LBAAngles::ANGLE_0, newAngle, LBAAngles::ANGLE_0, bodyData, dummy);
-	} else {
-		affObjetIso(0, y, 0, LBAAngles::ANGLE_0, angle, LBAAngles::ANGLE_0, bodyData, dummy);
 	}
-	_engine->_interface->unsetClip();
+	affObjetIso(0, y, 0, LBAAngles::ANGLE_0, angle, LBAAngles::ANGLE_0, bodyData, dummy);
 }
 
 void Renderer::draw3dObject(int32 x, int32 y, const BodyData &bodyData, int32 angle, int32 cameraZoom) {

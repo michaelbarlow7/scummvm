@@ -29,7 +29,7 @@
 /** Number of colors used in the game */
 #define NUMOFCOLORS 256
 
-#define NUM_LOCATIONS 150
+#define NUM_LOCATIONS 334 /* 150 for lba1 */
 
 #define NUM_INVENTORY_ITEMS 28
 /**
@@ -288,7 +288,7 @@ enum class AnimationTypes {
 };
 
 enum class AnimType {
-	kAnimationTypeLoop = 0,
+	kAnimationTypeRepeat = 0,
 	kAnimationThen = 1,
 	// play animation and let animExtra follow as next animation
 	// if there is already a next animation set - replace the value
@@ -342,7 +342,8 @@ enum class BodyType {
 
 enum class ExtraSpecialType {
 	kHitStars = 0,
-	kExplodeCloud = 1
+	kExplodeCloud = 1,
+	kFountain = 2
 };
 
 enum class ZoneType {

@@ -532,6 +532,31 @@ void TwinEEngine::queueMovie(const char *filename) {
 	_queuedFlaMovie = filename;
 }
 
+void TwinEEngine::adjustScreenMax(Common::Rect &rect, int16 x, int16 y) {
+	if (x < rect.left) {
+		rect.left = x;
+	}
+
+	if (x > rect.right) {
+		rect.right = x;
+	}
+
+	if (y < rect.top) {
+		rect.top = y;
+	}
+
+	if (y > rect.bottom) {
+		rect.bottom = y;
+	}
+}
+
+void TwinEEngine::clearScreenMinMax(Common::Rect &rect) {
+	rect.left = 0x7D00; // SCENE_SIZE_MAX
+	rect.right = -0x7D00;
+	rect.top = 0x7D00;
+	rect.bottom = -0x7D00;
+}
+
 void TwinEEngine::playIntro() {
 	_input->enableKeyMap(cutsceneKeyMapId);
 	// Display company logo
@@ -621,7 +646,7 @@ int TwinEEngine::getRandomNumber(uint max) {
 
 void TwinEEngine::freezeTime(bool pause) {
 	if (_isTimeFreezed == 0) {
-		_saveFreezedTime = _lbaTime;
+		_saveFreezedTime = timerRef;
 		if (pause)
 			_pauseToken = pauseEngine();
 	}
@@ -631,7 +656,7 @@ void TwinEEngine::freezeTime(bool pause) {
 void TwinEEngine::unfreezeTime() {
 	--_isTimeFreezed;
 	if (_isTimeFreezed == 0) {
-		_lbaTime = _saveFreezedTime;
+		timerRef = _saveFreezedTime;
 		if (_pauseToken.isActive()) {
 			_pauseToken.clear();
 		}
@@ -726,21 +751,22 @@ void TwinEEngine::processInventoryAction() {
 
 		const IVec3 &destPos = _movements->rotate(0, 800, _scene->_sceneHero->_beta);
 
-		penguin->_pos = _scene->_sceneHero->_pos;
+		penguin->_pos = _scene->_sceneHero->posObj();
 		penguin->_pos.x += destPos.x;
 		penguin->_pos.z += destPos.z;
 
 		penguin->_beta = _scene->_sceneHero->_beta;
+		debug("penguin angle: %i", penguin->_beta);
 
 		if (_collision->checkValidObjPos(_scene->_mecaPenguinIdx)) {
 			penguin->setLife(kActorMaxLife);
 			penguin->_genBody = BodyType::btNone;
 			_actor->initBody(BodyType::btNormal, _scene->_mecaPenguinIdx);
 			penguin->_dynamicFlags.bIsDead = 0;
-			penguin->setBrickShape(ShapeType::kNone);
-			_movements->initRealAngleConst(penguin->_beta, penguin->_beta, penguin->_speed, &penguin->_moveAngle);
+			penguin->setCollision(ShapeType::kNone);
+			_movements->initRealAngleConst(penguin->_beta, penguin->_beta, penguin->_speed, &penguin->realAngle);
 			_gameState->removeItem(InventoryItems::kiPenguin);
-			penguin->_delayInMillis = _lbaTime + toSeconds(30);
+			penguin->_delayInMillis = timerRef + toSeconds(30);
 		}
 		break;
 	}
@@ -928,7 +954,7 @@ bool TwinEEngine::runGameEngine() { // mainLoopInteration
 		}
 	}
 
-	_loopActorStep = _loopMovePtr.getRealValue(_lbaTime);
+	_loopActorStep = _loopMovePtr.getRealValueFromTime(timerRef);
 	if (!_loopActorStep) {
 		_loopActorStep = 1;
 	}
@@ -1004,7 +1030,7 @@ bool TwinEEngine::runGameEngine() { // mainLoopInteration
 						if (!_actor->_cropBottomScreen) {
 							_animations->initAnim(AnimationTypes::kDrawn, AnimType::kAnimationSet, AnimationTypes::kStanding, OWN_ACTOR_SCENE_INDEX);
 						}
-						const IVec3 &projPos = _renderer->projectPositionOnScreen(actor->posObj() - _grid->_worldCube);
+						const IVec3 &projPos = _renderer->projectPoint(actor->posObj() - _grid->_worldCube);
 						actor->_controlMode = ControlMode::kNoMove;
 						actor->setLife(-1);
 						_actor->_cropBottomScreen = projPos.y;
@@ -1101,7 +1127,7 @@ bool TwinEEngine::gameEngineLoop() {
 		if (runGameEngine()) {
 			return true;
 		}
-		_lbaTime++;
+		timerRef++;
 		if (shouldQuit()) {
 			break;
 		}

@@ -69,8 +69,6 @@ struct CmdRenderPolygon {
 	uint8 renderType = 0;
 	uint8 numVertices = 0;
 	int16 colorIndex = 0; // intensity
-	int16 top = 0;
-	int16 bottom = 0;
 	// followed by Vertex array
 };
 
@@ -151,6 +149,7 @@ private:
 
 	ModelData _modelData;
 
+	// AnimNuage
 	void animModel(ModelData *modelData, const BodyData &bodyData, RenderCommand *renderCmds, const IVec3 &angleVec, const IVec3 &renderPos, Common::Rect &modelRect);
 	bool computeSphere(int32 x, int32 y, int32 radius, int &vtop, int &vbottom);
 	bool renderObjectIso(const BodyData &bodyData, RenderCommand **renderCmds, ModelData *modelData, Common::Rect &modelRect); // RenderObjetIso
@@ -159,7 +158,7 @@ private:
 		return longInverseRot(vec.x, vec.y, vec.z);
 	}
 	void rotMatIndex2(IMatrix3x3 *targetMatrix, const IMatrix3x3 *currentMatrix, const IVec3 &angleVec);
-	void applyPointsRotation(const Common::Array<BodyVertex>& vertices, int32 firstPoint, int32 numPoints, I16Vec3 *destPoints, const IMatrix3x3 *rotationMatrix, const IVec3 &destPos);
+	void rotList(const Common::Array<BodyVertex>& vertices, int32 firstPoint, int32 numPoints, I16Vec3 *destPoints, const IMatrix3x3 *rotationMatrix, const IVec3 &destPos);
 	void processRotatedElement(IMatrix3x3 *targetMatrix, const Common::Array<BodyVertex>& vertices, int32 rotX, int32 rotY, int32 rotZ, const BodyBone &bone, ModelData *modelData);
 	void applyPointsTranslation(const Common::Array<BodyVertex>& vertices, int32 firstPoint, int32 numPoints, I16Vec3 *destPoints, const IMatrix3x3 *translationMatrix, const IVec3 &angleVec, const IVec3 &destPos);
 	void processTranslatedElement(IMatrix3x3 *targetMatrix, const Common::Array<BodyVertex>& vertices, int32 rotX, int32 rotY, int32 rotZ, const BodyBone &bone, ModelData *modelData);
@@ -207,7 +206,7 @@ private:
 	void svgaPolyDith(int16 vtop, int16 vbottom) const;
 	void svgaPolyMarbre(int16 vtop, int16 vbottom, uint16 color) const;
 	void svgaPolyTriche(int16 vtop, int16 vbottom, uint16 color) const;
-	bool computePoly(int16 polyRenderType, const ComputedVertex *vertices, int32 numVertices, int &vtop, int &vbottom);
+	bool computePoly(int16 polyRenderType, const ComputedVertex *vertices, int32 numVertices, int16 &vtop, int16 &vbottom);
 
 	const RenderCommand *depthSortRenderCommands(int32 numOfPrimitives);
 	uint8 *preparePolygons(const Common::Array<BodyPolygon>& polygons, int32 &numOfPrimitives, RenderCommand **renderCmds, uint8 *renderBufferPtr, ModelData *modelData);
@@ -224,14 +223,12 @@ private:
 	int16 rightClip(int16 polyRenderType, ComputedVertex** offTabPoly, int32 numVertices);
 	int16 topClip(int16 polyRenderType, ComputedVertex** offTabPoly, int32 numVertices);
 	int16 bottomClip(int16 polyRenderType, ComputedVertex** offTabPoly, int32 numVertices);
-	int32 computePolyMinMax(int16 polyRenderType, ComputedVertex **offTabPoly, int32 numVertices, int &vtop, int &vbottom);
+	int32 computePolyMinMax(int16 polyRenderType, ComputedVertex **offTabPoly, int32 numVertices, int16 &vtop, int16 &vbottom);
 public:
 	Renderer(TwinEEngine *engine);
 	~Renderer();
 
 	void init(int32 w, int32 h);
-
-	IVec3 _projPos;
 
 	void setCameraRotation(int32 x, int32 y, int32 z);
 	IVec3 getHolomapRotation(const int32 angleX, const int32 angleY, const int32 angleZ) const;
@@ -242,13 +239,15 @@ public:
 	IVec3 worldRotatePoint(const IVec3& vec);
 
 	void fillVertices(int16 vtop, int16 vbottom, uint8 renderType, uint16 color);
-	void renderPolygons(const CmdRenderPolygon &polygon, ComputedVertex *vertices, int vtop, int vbottom);
+	void renderPolygons(const CmdRenderPolygon &polygon, ComputedVertex *vertices);
 
-	inline IVec3 &projectPositionOnScreen(const IVec3& pos) { // ProjettePoint
-		return projectPositionOnScreen(pos.x, pos.y, pos.z);
+	inline IVec3 projectPoint(const IVec3& pos) { // ProjettePoint
+		return projectPoint(pos.x, pos.y, pos.z);
 	}
 
-	IVec3 &projectPositionOnScreen(int32 cX, int32 cY, int32 cZ);
+	void projIso(IVec3 &pos, int32 x, int32 y, int32 z);
+
+	IVec3 projectPoint(int32 cX, int32 cY, int32 cZ);
 
 	void setFollowCamera(int32 transPosX, int32 transPosY, int32 transPosZ, int32 cameraAlpha, int32 cameraBeta, int32 cameraGamma, int32 cameraZoom);
 	void setPosCamera(int32 x, int32 y, int32 z);
@@ -275,7 +274,7 @@ public:
 	/**
 	 * @param angle A value of @c -1 means that the model is automatically rotated
 	 */
-	void renderBehaviourModel(const Common::Rect &rect, int32 y, int32 angle, const BodyData &bodyData, ActorMoveStruct &move);
+	void drawObj3D(const Common::Rect &rect, int32 y, int32 angle, const BodyData &bodyData, ActorMoveStruct &move);
 
 	/**
 	 * @brief Render an inventory item
