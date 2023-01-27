@@ -55,7 +55,7 @@ Net::Net(ScummEngine_v100he *vm) : _latencyTime(1), _fakeLatency(false), _vm(vm)
 	_isShuttingDown = false;
 	_sessionName = Common::String();
 	_sessions = Common::Array<Session>();
-	
+
 	_hostPort = 0;
 
 	_hostDataQueue = Common::Queue<Common::JSONValue *>();
@@ -127,7 +127,7 @@ int Net::joinGame(Common::String IP, char *userName) {
 
 			_sessions.clear();
 			_broadcastSocket->send(address.host.c_str(), 9130, "{\"cmd\": \"get_session\"}");
-			
+
 			uint tickCount = 0;
 			while(!_sessions.size()) {
 				serviceBroadcast();
@@ -167,7 +167,7 @@ bool Net::connectToSession(Common::String address, int port) {
 		_sessionHost = _enet->connectToHost(address, port);
 	if (!_sessionHost)
 		return false;
-	
+
 	_isHost = false;
 	return true;
 }
@@ -175,7 +175,7 @@ bool Net::connectToSession(Common::String address, int port) {
 int Net::addUser(char *shortName, char *longName) {
 	debug(1, "Net::addUser(\"%s\", \"%s\")", shortName, longName); // PN_AddUser
 	// TODO: What's the difference between shortName and longName?
-	
+
 	if (_isHost) {
 		if (getTotalPlayers() > 4) {
 			// We are full.
@@ -199,7 +199,7 @@ int Net::addUser(char *shortName, char *longName) {
 
 	Common::String addUser = Common::String::format(
 		"{\"cmd\":\"add_user\",\"name\":\"%s\"}", longName);
-	
+
 	_sessionHost->send(addUser.c_str(), 0, 0, true);
 
 	uint tickCount = 0;
@@ -242,13 +242,13 @@ int Net::createSession(char *name) {
 
 	_sessionId = -1;
 	_sessionName = name;
-	// Four peers (0-3) because we are reserving one for our connection to the session server. 
+	// Four peers (0-3) because we are reserving one for our connection to the session server.
 	_sessionHost = _enet->createHost("0.0.0.0", 0, 4);
 
 	if (!_sessionHost) {
 		return 0;
 	}
-	
+
 	_isHost = true;
 	// TODO: Config to enable/disable Internet sessions.
 	if (_sessionHost->connectPeer("127.0.0.1", 9120)) {
@@ -309,7 +309,7 @@ int Net::joinSession(int sessionIndex) {
 	if (!success) {
 		if (!session.local) {
 			// Start up a relay session with the host.
-			
+
 			// This will re-connect us to the session server.
 			startQuerySessions();
 			if (_sessionServerHost) {
@@ -376,7 +376,7 @@ int Net::endSession() {
 	}
 
 	_hostPort = 0;
-	
+
 	_numUsers = 0;
 	_numBots = 0;
 
@@ -478,7 +478,7 @@ bool Net::destroyPlayer(int32 userId) {
 		warning("NETWORK: destoryPlayer(%d): User does not exist!", userId);
 		return false;
 	}
-	
+
 	Common::String removerUser = "{\"cmd\":\"remove_user\"}";
 	_sessionHost->send(removerUser.c_str(), 0, 0, true);
 	_sessionHost->disconnectPeer(0);
@@ -554,7 +554,7 @@ void Net::stopQuerySessions() {
 		delete _broadcastSocket;
 		_broadcastSocket = nullptr;
 	}
-	
+
 	_sessions.clear();
 	// No op
 }
@@ -630,7 +630,7 @@ void Net::remoteStartScript(int typeOfSend, int sendTypeParam, int priority, int
 int Net::remoteSendData(int typeOfSend, int sendTypeParam, int type, Common::String data, int priority, int defaultRes, bool wait, int callid) {
 	if (!_enet || !_sessionHost || _myUserId == -1)
 		return defaultRes;
-	
+
 	if (typeOfSend == PN_SENDTYPE_INDIVIDUAL && sendTypeParam == 0)
 		// In DirectPlay, sending a message to 0 means all players
 		// sooo, send all.
@@ -776,7 +776,7 @@ void Net::getProviderName(int providerIndex, char *buffer, int length) {
 void Net::serviceSessionServer() {
 	if (!_sessionServerHost)
 		return;
-	
+
 	uint8 type = _sessionServerHost->service();
 	switch(type) {
 	case ENET_EVENT_TYPE_NONE:
@@ -835,7 +835,7 @@ void Net::handleSessionServerData(Common::String data) {
 							break;
 						}
 					}
-					
+
 					if (!makeNewSession)
 						continue;
 
@@ -856,7 +856,7 @@ void Net::handleSessionServerData(Common::String data) {
 				// By sending an UDP packet, the router will open a hole for the
 				// destinated address, allowing someone with the same address to
 				// communicate with us.  This does not work with every router though...
-				// 
+				//
 				// More infomation: https://en.wikipedia.org/wiki/UDP_hole_punching
 				debug(1, "NETWORK: Hole punching %s:%d", address.host.c_str(), address.port);
 				_sessionHost->sendRawData(address.host, address.port, "");
@@ -867,7 +867,7 @@ void Net::handleSessionServerData(Common::String data) {
 			if (root.contains("address")) {
 				// To be sent back for context.
 				Common::String address = root["address"]->asString();
-				
+
 				if (addUser(const_cast<char *>(address.c_str()), const_cast<char *>(address.c_str()))) {
 					_userIdToAddress[_userIdCounter] = "127.0.0.1:9120";
 					_addressToUserId["127.0.0.1:9120"] = _userIdCounter;
@@ -920,7 +920,7 @@ bool Net::serviceBroadcast() {
 
 	if (!_broadcastSocket->receive())
 		return false;
-	
+
 	handleBroadcastData(_broadcastSocket->getData(), _broadcastSocket->getHost(), _broadcastSocket->getPort());
 	return true;
 }
@@ -949,7 +949,7 @@ void Net::handleBroadcastData(Common::String data, Common::String host, int port
 				Common::String resp = Common::String::format(
 					"{\"cmd\":\"session_resp\",\"version\":\"%s\",\"id\":%d,\"name\":\"%s\",\"players\":%d}",
 					_gameVersion.c_str(), _sessionId, _sessionName.c_str(), getTotalPlayers());
-				
+
 				// Send this through the session host instead of the broadcast socket
 				// because that will send the correct port to connect to.
 				// They'll still receive it though, that's the power of connection-less sockets.
@@ -1037,7 +1037,7 @@ bool Net::remoteReceiveData(uint32 tickCount) {
 			Common::String host = _sessionHost->getHost();
 			int port = _sessionHost->getPort();
 			debug(1, "NETWORK: Got data from %s:%d", host.c_str(), port);
-			
+
 			int peerIndex = _sessionHost->getPeerIndexFromHost(host, port);
 			if (peerIndex == -1) {
 				warning("NETWORK: Unable to get peer index for host %s:%d", host.c_str(), port);
@@ -1069,7 +1069,7 @@ bool Net::remoteReceiveData(uint32 tickCount) {
 			Common::JSONObject root = json->asObject();
 			if (root.contains("cmd") && root["cmd"]->isString()) {
 				Common::String command = root["cmd"]->asString();
-				
+
 				if (_isHost && command == "add_user") {
 					if (root.contains("name")) {
 						Common::String name = root["name"]->asString();
@@ -1086,7 +1086,7 @@ bool Net::remoteReceiveData(uint32 tickCount) {
 								_gameVersion.c_str(), getTotalPlayers());
 							_sessionHost->send(updatePlayers.c_str(), _sessionServerPeer);
 						}
-						
+
 						Common::String address = Common::String::format("%s:%d", host.c_str(), port);
 						_userIdToAddress[_userIdCounter] = address;
 						_addressToUserId[address] = _userIdCounter;
@@ -1136,7 +1136,7 @@ void Net::doNetworkOnceAFrame(int msecs) {
 
 	if (_broadcastSocket)
 		serviceBroadcast();
-	
+
 	if (_isHost && _hostDataQueue.size()) {
 		if (_hostDataQueue.size() != _hostDataQueue.size())
 			warning("NETWORK: Sizes of data and peer index queues does not match!  Expect some wonky stuff");
@@ -1289,7 +1289,7 @@ void Net::handleGameDataHost(Common::JSONValue *json, int peerIndex) {
 		{
 			// It's for all of us, including the host.
 			// Don't handle data if we're shutting down, or the game will crash.
-			if (!_isShuttingDown)
+			if (!_isShuttingDown && from != _myUserId)
 				handleGameData(json, peerIndex);
 			Common::String str = Common::JSON::stringify(json);
 			bool sentToSessionServer = false;

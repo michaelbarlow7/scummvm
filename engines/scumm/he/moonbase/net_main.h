@@ -39,7 +39,7 @@ public:
 		Common::String host;
 		int port;
 		bool operator==(const Address &other) {
-			return host == other.host && port == other.port;	
+			return host == other.host && port == other.port;
 		};
 	};
 
@@ -109,11 +109,11 @@ public:
 	ScummEngine_v100he *_vm;
 
 	Common::String _gameVersion;
-	
+
 	Networking::ENet *_enet;
 
 	byte *_tmpbuffer;
-	
+
 	int _numUsers;
 	int _numBots;
 	int _userIdCounter;
