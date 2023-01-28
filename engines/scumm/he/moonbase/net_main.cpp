@@ -1028,7 +1028,12 @@ bool Net::remoteReceiveData(uint32 tickCount) {
 			else
 				debug(1, "NETWORK: Connection from %s has disconnected.", address.c_str());
 
-			// TODO: Let the game know.
+			// TODO: Host migration
+			if (!_isHost && _vm->_currentRoom == 2) {
+				_vm->displayMessage(0, "You have been disconnected from the host.\nNormally, host migration would take place, but ScummVM doesn't do that yet, so this game session will now end." );
+				_vm->VAR(253) = 26; // GAME-OVER
+				_vm->runScript(2104, 1, 0, 0); // leave-game
+			}
 			return true;
 		}
 		return true;
@@ -1157,11 +1162,24 @@ void Net::handleGameData(Common::JSONValue *json, int peerIndex) {
 	switch (type) {
 	case PACKETTYPE_REMOTESTARTSCRIPT:
 		{
-			int datalen = json->child("data")->child("params")->asArray().size();
+			Common::JSONArray paramsArray = json->child("data")->child("params")->asArray();
+
+			// Detect if the host has disconnected.
+			if (paramsArray[0]->asIntegerNumber() == 145 && _fromUserId == 1) {
+				if (!_isHost && _vm->_currentRoom == 2) {
+					// TODO: Host migration
+					_vm->displayMessage(0, "You have been disconnected from the host.\nNormally, host migration would take place, but ScummVM doesn't do that yet, so this game session will now end.");
+					_vm->VAR(253) = 26; // GAME-OVER
+					_vm->runScript(2104, 1, 0, 0); // leave-game
+					return;
+				}
+			}
+
+			int datalen = paramsArray.size();
 			params = (uint32 *)_tmpbuffer;
 
 			for (int i = 0; i < datalen; i++) {
-				*params = json->child("data")->child("params")->asArray()[i]->asIntegerNumber();
+				*params = paramsArray[i]->asIntegerNumber();
 				params++;
 			}
 
