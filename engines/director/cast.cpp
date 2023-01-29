@@ -552,11 +552,16 @@ void Cast::loadCast() {
 	if (cast.size() > 0) {
 		debugC(2, kDebugLoading, "****** Loading %d CASt resources", cast.size());
 
+		int idx = 0;
+
 		for (Common::Array<uint16>::iterator iterator = cast.begin(); iterator != cast.end(); ++iterator) {
 			Common::SeekableReadStreamEndian *stream = _castArchive->getResource(MKTAG('C', 'A', 'S', 't'), *iterator);
 			Resource res = _castArchive->getResourceDetail(MKTAG('C', 'A', 'S', 't'), *iterator);
 			loadCastData(*stream, res.castId, &res);
 			delete stream;
+
+			if (debugChannelSet(-1, kDebugFewFramesOnly) && idx++ > 0 && !(idx % 200))
+				debug("Loaded %d cast resources", idx);
 		}
 	}
 
@@ -772,8 +777,6 @@ void Cast::loadSoundData(int key, SoundCastMember *soundCast) {
 		if (!_castsInfo[key]->directory.empty())
 			filename = _castsInfo[key]->directory + g_director->_dirSeparator + _castsInfo[key]->fileName;
 
-		warning("Filename is: %s", filename.c_str());
-
 		AudioFileDecoder *audio = new AudioFileDecoder(filename);
 		soundCast->_audio = audio;
 	} else {
@@ -794,6 +797,8 @@ void Cast::loadCastMemberData() {
 	debugC(1, kDebugLoading, "****** Loading casts data: sprite palettes, images, filmloops, sounds and texts.");
 
 	Common::HashMap<int, PaletteV4>::iterator p = _vm->getLoadedPalettes().find(0);
+
+	int idx = 0;
 
 	for (Common::HashMap<int, CastMember *>::iterator c = _loadedCast->begin(); c != _loadedCast->end(); ++c) {
 		if (!c->_value)
@@ -818,6 +823,9 @@ void Cast::loadCastMemberData() {
 			default:
 				break;
 		}
+
+		if (debugChannelSet(-1, kDebugFewFramesOnly) && idx++ > 0 && !(idx % 200))
+			debug("Loaded %d casts data", idx);
 	}
 }
 

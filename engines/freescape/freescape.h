@@ -80,7 +80,7 @@ struct soundFx {
 
 class SizedPCSpeaker : public Audio::PCSpeaker {
 public:
-	bool endOfStream() const override { return (_commandQueue->size() == 0); }
+	bool endOfStream() const override { return !isPlaying(); }
 };
 
 class FreescapeEngine : public Engine {
@@ -244,6 +244,7 @@ public:
 	// Instructions
 	void executeIncrementVariable(FCLInstruction &instruction);
 	void executeDecrementVariable(FCLInstruction &instruction);
+	void executeSetVariable(FCLInstruction &instruction);
 	void executeGoto(FCLInstruction &instruction);
 	void executeIfThenElse(FCLInstruction &instruction);
 	void executeMakeInvisible(FCLInstruction &instruction);
@@ -269,6 +270,7 @@ public:
 	Freescape::SizedPCSpeaker *_speaker;
 
 	bool _syncSound;
+	bool _firstSound;
 	bool _usePrerecordedSounds;
 	void waitForSounds();
 	void stopAllSounds();
@@ -351,6 +353,10 @@ public:
 	int _countdown;
 	int _ticks;
 	int _lastTick;
+	int _lastMinute;
+
+	void getTimeFromCountdown(int &seconds, int &minutes, int &hours);
+	void updateTimeVariables();
 
 	// Cheats
 	bool _useExtendedTimer;
@@ -415,6 +421,7 @@ private:
 	void addDrill(const Math::Vector3d position, bool gasFound);
 	bool checkDrill(const Math::Vector3d position);
 	void removeDrill(Area *area);
+	void addSkanner(Area *area);
 
 	void loadAssetsDemo();
 	void loadAssetsFullGame();

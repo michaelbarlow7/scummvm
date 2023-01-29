@@ -69,7 +69,7 @@ Token::Type FCLInstruction::getType() {
 void FreescapeEngine::executeObjectConditions(GeometricObject *obj, bool shot, bool collided) {
 	assert(obj != nullptr);
 	if (!obj->_conditionSource.empty()) {
-		stopAllSounds();
+		_firstSound = true;
 		_objExecutingCodeSize = obj->getSize();
 		debugC(1, kFreescapeDebugCode, "Executing with collision flag: %s", obj->_conditionSource.c_str());
 		executeCode(obj->_condition, shot, collided);
@@ -104,6 +104,8 @@ void FreescapeEngine::executeCode(FCLInstructionVector &code, bool shot, bool co
 		debugC(1, kFreescapeDebugCode, "Executing ip: %d in code with size: %d", ip, codeSize);
 		switch (instruction.getType()) {
 		default:
+			if (!isCastle())
+				error("Instruction %x at ip: %d not implemented!", instruction.getType(), ip);
 			break;
 		case Token::COLLIDEDQ:
 			if (collided)
@@ -129,6 +131,9 @@ void FreescapeEngine::executeCode(FCLInstructionVector &code, bool shot, bool co
 			break;
 		case Token::SUBVAR:
 			executeDecrementVariable(instruction);
+			break;
+		case Token::SETVAR:
+			executeSetVariable(instruction);
 			break;
 		case Token::GOTO:
 			executeGoto(instruction);
@@ -166,6 +171,9 @@ void FreescapeEngine::executeCode(FCLInstructionVector &code, bool shot, bool co
 		case Token::SPFX:
 			executeSPFX(instruction);
 			break;
+		case Token::SCREEN:
+			// TODO
+			break;
 		case Token::BITNOTEQ:
 			if (executeEndIfBitNotEqual(instruction))
 				ip = codeSize;
@@ -190,6 +198,9 @@ void FreescapeEngine::executeRedraw(FCLInstruction &instruction) {
 }
 
 void FreescapeEngine::executeSound(FCLInstruction &instruction) {
+	if (_firstSound)
+		stopAllSounds();
+	_firstSound = false;
 	uint16 index = instruction._source;
 	bool sync = instruction._additional;
 	debugC(1, kFreescapeDebugCode, "Playing sound %d", index);
@@ -322,6 +333,16 @@ void FreescapeEngine::executeDecrementVariable(FCLInstruction &instruction) {
 		debugC(1, kFreescapeDebugCode, "Energy decrement by %d up to %d", decrement, _gameStateVars[variable]);
 	} else
 		debugC(1, kFreescapeDebugCode, "Variable %d by %d incremented up to %d!", variable, decrement, _gameStateVars[variable]);
+}
+
+void FreescapeEngine::executeSetVariable(FCLInstruction &instruction) {
+	uint16 variable = instruction._source;
+	uint16 value = instruction._destination;
+	_gameStateVars[variable] = value;
+	if (variable == k8bitVariableEnergy)
+		debugC(1, kFreescapeDebugCode, "Energy set to %d", value);
+	else
+		debugC(1, kFreescapeDebugCode, "Variable %d by set to %d!", variable, value);
 }
 
 void FreescapeEngine::executeDestroy(FCLInstruction &instruction) {
