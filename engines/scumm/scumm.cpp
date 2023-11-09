@@ -637,6 +637,8 @@ ScummEngine_v6::ScummEngine_v6(OSystem *syst, const DetectorResult &dr)
 
 ScummEngine_v60he::ScummEngine_v60he(OSystem *syst, const DetectorResult &dr)
 	: ScummEngine_v6(syst, dr) {
+	_moonbase = 0;
+
 	memset(_hInFileTable, 0, sizeof(_hInFileTable));
 	memset(_hOutFileTable, 0, sizeof(_hOutFileTable));
 
@@ -792,8 +794,6 @@ ScummEngine_v90he::~ScummEngine_v90he() {
 
 ScummEngine_v100he::ScummEngine_v100he(OSystem *syst, const DetectorResult &dr) : ScummEngine_v99he(syst, dr) {
 	/* Moonbase stuff */
-	_moonbase = 0;
-
 	if (_game.id == GID_MOONBASE)
 		_moonbase = new Moonbase(this);
 
