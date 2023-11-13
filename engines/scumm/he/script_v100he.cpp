@@ -35,6 +35,9 @@
 #include "scumm/he/sprite_he.h"
 #include "scumm/util.h"
 
+#include "scumm/he/moonbase/moonbase.h"
+#include "scumm/he/moonbase/map_main.h"
+
 namespace Scumm {
 
 #define OPCODE(i, x)	_opcodes[i]._OPCODE(ScummEngine_v100he, x)
@@ -2170,8 +2173,11 @@ void ScummEngine_v100he::o100_startScript() {
 
 	if (_game.id == GID_MOONBASE && _roomResource == 5 &&
 		((!strcmp(_game.variant, "1.1") && script == 2178) || script == 2177)) {
-		// TODO: Add a dialog for random map generation.
-		debug(1, "this is setup-gamesetup");
+		// TODO: Only run if we're doing a single-player skirmesh or hosting a
+		// multiplayer game.
+		// (gGameMode == GAME-MODE-MULTIPLAYER-HOST || gGameMode == GAME-MODE-TCPIP-HOST ||
+		//  gGameMode == GAME-MODE-SINGLEPLAYER-SKIRMISH)
+		_moonbase->_map->generateNewMap();
 	}
 
 	runScript(script, (flags == 128 || flags == 129), (flags == 130 || flags == 129), args);
