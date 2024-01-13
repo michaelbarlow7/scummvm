@@ -170,6 +170,7 @@ MODULE_OBJS += \
 	he/moonbase/ai_types.o \
 	he/moonbase/ai_weapon.o \
 	he/moonbase/distortion.o \
+	he/moonbase/map_katton.o \
 	he/moonbase/map_main.o \
 	he/moonbase/map_mif.o \
 	he/moonbase/map_spiff.o \
