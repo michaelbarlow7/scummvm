@@ -23,6 +23,7 @@
 #include "common/config-manager.h"
 
 #include "common/md5.h"
+#include "common/file.h"
 
 #include "common/memstream.h"
 #include "common/bufferedstream.h"
@@ -34,6 +35,7 @@
 
 #include "scumm/he/moonbase/map_spiff.h"
 #include "scumm/he/moonbase/map_katton.h"
+
 
 namespace Scumm {
 
@@ -140,6 +142,13 @@ bool Map::generateNewMap() {
 
 bool Map::generateMapWithInfo(uint8 generator, int seed, int mapSize, int tileset, int energy, int terrain, int water) {
 	deleteMap();
+	generator = 2;
+	seed = 5226;
+	mapSize = 32;
+	tileset = 6;
+	energy = 3;
+	terrain = 3;
+	water = 3;
 
 	_generator = generator;
 	_seed = seed;
@@ -148,6 +157,7 @@ bool Map::generateMapWithInfo(uint8 generator, int seed, int mapSize, int tilese
 	_energy = energy;
 	_terrain = terrain;
 	_water = water;
+
 
 	debug(1, "Map: Generating new map with info: generator = %d, seed = %d, mapSize = %d, tileset = %d , energy = %d, terrain = %d, water = %d.", generator, getSeed(), mapSize, tileset, energy, terrain, water);
 	switch (generator) {
@@ -172,6 +182,16 @@ bool Map::generateMapWithInfo(uint8 generator, int seed, int mapSize, int tilese
 	Common::MemoryReadStream mapStream = Common::MemoryReadStream((byte *)_generatedMap, sizeof(MapFile));
 	_mapHash = Common::computeStreamMD5AsString(mapStream, 0);
 	debug(1, "Map: MD5: %s", _mapHash.c_str());
+	//TODO: Output mapfile to file
+	FILE * file = fopen("/tmp/moon001.map", "wb");
+	if (file) {
+		if (sizeof(MapFile) != fwrite(_generatedMap, 1, sizeof(MapFile), file)) {
+			debug(1, "Could not write map file");
+		}
+		fclose(file);
+	} else {
+		debug(1, "Couldn't open file");
+	}
 
 	_mapGenerated = true;
 	return true;

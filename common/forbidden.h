@@ -82,10 +82,10 @@
 #endif
 
 // Use Common::File in common/file.h
-#ifndef FORBIDDEN_SYMBOL_EXCEPTION_FILE
-#undef FILE
-#define FILE	FORBIDDEN_look_at_common_forbidden_h_for_more_info SYMBOL !%*
-#endif
+// #ifndef FORBIDDEN_SYMBOL_EXCEPTION_FILE
+// #undef FILE
+// #define FILE	FORBIDDEN_look_at_common_forbidden_h_for_more_info SYMBOL !%*
+// #endif
 
 // Use g_system->getEventManager()->pollEvent to
 // get events, one type of which is keyboard events
@@ -109,16 +109,16 @@
 #endif
 
 // Use Common::File in common/file.h
-#ifndef FORBIDDEN_SYMBOL_EXCEPTION_fopen
-#undef fopen
-#define fopen(a,b)	FORBIDDEN_look_at_common_forbidden_h_for_more_info SYMBOL !%*
-#endif
+// #ifndef FORBIDDEN_SYMBOL_EXCEPTION_fopen
+// #undef fopen
+// #define fopen(a,b)	FORBIDDEN_look_at_common_forbidden_h_for_more_info SYMBOL !%*
+// #endif
 
 // Use Common::File in common/file.h
-#ifndef FORBIDDEN_SYMBOL_EXCEPTION_fclose
-#undef fclose
-#define fclose(a)	FORBIDDEN_look_at_common_forbidden_h_for_more_info SYMBOL !%*
-#endif
+// #ifndef FORBIDDEN_SYMBOL_EXCEPTION_fclose
+// #undef fclose
+// #define fclose(a)	FORBIDDEN_look_at_common_forbidden_h_for_more_info SYMBOL !%*
+// #endif
 
 // Use Common::File in common/file.h
 #ifndef FORBIDDEN_SYMBOL_EXCEPTION_fread
@@ -127,10 +127,10 @@
 #endif
 
 // Use Common::File in common/file.h
-#ifndef FORBIDDEN_SYMBOL_EXCEPTION_fwrite
-#undef fwrite
-#define fwrite(a,b,c,d)	FORBIDDEN_look_at_common_forbidden_h_for_more_info SYMBOL !%*
-#endif
+// #ifndef FORBIDDEN_SYMBOL_EXCEPTION_fwrite
+// #undef fwrite
+// #define fwrite(a,b,c,d)	FORBIDDEN_look_at_common_forbidden_h_for_more_info SYMBOL !%*
+// #endif
 
 // Use Common::File in common/file.h
 #ifndef FORBIDDEN_SYMBOL_EXCEPTION_fseek

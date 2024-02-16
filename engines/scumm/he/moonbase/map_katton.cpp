@@ -78,6 +78,7 @@ MapFile *KattonGenerator::generateMap(int water, int tileSet, int mapSize, int e
 	short int goodwater[1600][2];
 	// used in making energy
 	int maxnumclose = 0, maxnumfar = 0, maxnumrand = 0, smallmed = 0, goodplaceClose[300][2], goodplaceFar[300][2], numplaceClose, numplaceFar, placeFar[3], placeClose[2], counter, counterpools;
+	int plusminusvar, randomx, randomy;
 
 	//****************************************Make the basic landmass shapes.
 
@@ -86,23 +87,35 @@ MapFile *KattonGenerator::generateMap(int water, int tileSet, int mapSize, int e
 	for (i = 0; i < numsplotches; i++) {
 		length = (int)(((1 - waterpercent) / 6 * size * size) / numsplotches);
 		length = length + plusminus((int)(length / 2));
-		randomsplotch(length, 1 + plusminus(1), 2, getRandomNumber() % size, getRandomNumber() % size);
+		plusminusvar = 1 + plusminus(1);
+		randomx = getRandomNumber() % size;
+		randomy = getRandomNumber() % size;
+		randomsplotch(length, 1 + plusminusvar, 2, randomx, randomy);
 	}
 
 	for (i = 0; i < (int)numsplotches / 4; i++) {
 		length = (int)(((1 - waterpercent) / 3 * size * size) / numsplotches);
 		length = length + plusminus((int)(length / 4));
-		randomsplotch(length, 1 + plusminus(1), 1, getRandomNumber() % size, getRandomNumber() % size);
+		plusminusvar = 1 + plusminus(1);
+		randomx = getRandomNumber() % size;
+		randomy = getRandomNumber() % size;
+		randomsplotch(length, plusminusvar, 1, randomx, randomy);
 	}
 
 	for (i = 0; i < (int)numsplotches / 2; i++) {
 		length = (int)(size + plusminus((int)(size / 2)));
-		randomsplotch(length, 1 + plusminus(1), 0, getRandomNumber() % size, getRandomNumber() % size);
+		plusminusvar = 1 + plusminus(1);
+		randomx = getRandomNumber() % size;
+		randomy = getRandomNumber() % size;
+		randomsplotch(length, plusminusvar, 0, randomx, randomy);
 	}
 
 	for (i = 0; i < (int)waterpercent * size; i++) {
 		length = (int)(size + plusminus((int)(size / 2)));
-		randomsplotch(length, 1 + plusminus(1), 0, getRandomNumber() % size, getRandomNumber() % size);
+		plusminusvar = 1 + plusminus(1);
+		randomx = getRandomNumber() % size;
+		randomy = getRandomNumber() % size;
+		randomsplotch(length, plusminusvar, 0, randomx, randomy);
 	}
 
 	//****************************************Fatten up the landmasses
@@ -150,11 +163,15 @@ MapFile *KattonGenerator::generateMap(int water, int tileSet, int mapSize, int e
 	if (numwatersplotches >= 1) {
 		multiplier = (int)((float)numwaterplaces / (float)numwatersplotches);
 
+		int stringiness;
 		for (i = 0; i < numwatersplotches; i++) {
 			z = getRandomNumber() % multiplier + i * multiplier;
 			x = goodwater[z][0];
 			y = goodwater[z][1];
-			randomwater(size + plusminus(size / 2), getRandomNumber() % 3, x, y);
+			plusminusvar = size + plusminus(size / 2);
+			stringiness = getRandomNumber() % 3;
+			//randomwater(size + plusminus(size / 2), getRandomNumber() % 3, x, y);
+			randomwater(plusminusvar, stringiness, x, y);
 		}
 	}
 
